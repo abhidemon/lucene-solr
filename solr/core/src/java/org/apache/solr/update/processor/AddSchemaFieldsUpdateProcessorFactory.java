@@ -298,7 +298,7 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
     }
   }
 
-  private static class TypeMapping {
+  public static class TypeMapping {
     public String fieldTypeName;
     public Collection<String> valueClassNames;
     public Collection<CopyFieldDef> copyFieldDefs;
@@ -336,7 +336,7 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
     }
   }
 
-  private static class CopyFieldDef {
+  static class CopyFieldDef {
     private final String destGlob;
     private final Integer maxChars;
 
@@ -364,7 +364,7 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
     }
   }
 
-  private class AddSchemaFieldsUpdateProcessor extends UpdateRequestProcessor {
+  public class AddSchemaFieldsUpdateProcessor extends UpdateRequestProcessor {
     public AddSchemaFieldsUpdateProcessor(UpdateRequestProcessor next) {
       super(next);
     }
@@ -478,8 +478,8 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
     /**
      * Recursively find unknown fields in the given doc and its child documents, if any.
      */
-    private void getUnknownFields
-    (FieldNameSelector selector, SolrInputDocument doc, Map<String,List<SolrInputField>> unknownFields) {
+    void getUnknownFields
+    (FieldNameSelector selector, SolrInputDocument doc, Map<String, List<SolrInputField>> unknownFields) {
       for (final String fieldName : doc.getFieldNames()) {
         if (selector.shouldMutate(fieldName)) { // returns false if the field already exists in the current schema
           List<SolrInputField> solrInputFields = unknownFields.get(fieldName);
@@ -503,7 +503,7 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
      * 
      * @param fields one or more (same-named) field values from one or more documents
      */
-    private TypeMapping mapValueClassesToFieldType(List<SolrInputField> fields) {
+    TypeMapping mapValueClassesToFieldType(List<SolrInputField> fields) {
       NEXT_TYPE_MAPPING: for (TypeMapping typeMapping : typeMappings) {
         for (SolrInputField field : fields) {
           NEXT_FIELD_VALUE: for (Object fieldValue : field.getValues()) {
@@ -532,7 +532,7 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
       }
     }
 
-    private FieldNameSelector buildSelector(IndexSchema schema) {
+    public FieldNameSelector buildSelector(IndexSchema schema) {
       FieldNameSelector selector = FieldMutatingUpdateProcessor.createFieldNameSelector
         (solrResourceLoader, schema, inclusions, fieldName -> null == schema.getFieldTypeNoEx(fieldName));
 
