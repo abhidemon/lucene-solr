@@ -13,6 +13,7 @@ import java.util.stream.Collectors;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.SolrInputDocument;
 import org.apache.solr.common.SolrInputField;
+import org.apache.solr.common.util.NamedList;
 import org.apache.solr.core.SolrCore;
 import org.apache.solr.core.SolrResourceLoader;
 import org.apache.solr.request.SolrQueryRequest;
@@ -25,10 +26,15 @@ import org.apache.solr.util.plugin.SolrCoreAware;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.solr.common.SolrException.ErrorCode.SERVER_ERROR;
+import static org.apache.solr.update.processor.AddSchemaFieldsUpdateProcessorFactory.parseTypeMappings;
+import static org.apache.solr.update.processor.FieldMutatingUpdateProcessor.SELECT_ALL_FIELDS;
+
 /**
  * Created by abhidemon on 10/12/17.
  */
-public class GuessSchemaFieldsUpdateProcessorFactory extends AddSchemaFieldsUpdateProcessorFactory {
+public class GuessSchemaFieldsUpdateProcessorFactory  extends UpdateRequestProcessorFactory
+    implements SolrCoreAware, UpdateRequestProcessorFactory.RunAlways  {
 
   private static final Logger log = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
   private static final String TYPE_MAPPING_PARAM = "typeMapping";
@@ -45,30 +51,64 @@ public class GuessSchemaFieldsUpdateProcessorFactory extends AddSchemaFieldsUpda
   private Collection<FieldMutatingUpdateProcessorFactory.SelectorParams> exclusions = new ArrayList<>();
   private SolrResourceLoader solrResourceLoader = null;
   private String defaultFieldType;
+  GuessSchemaFieldsUpdateProcessor gsfup;
+  AddSchemaFieldsUpdateProcessorFactory addSchemaFieldsUpdateProcessorFactory = new AddSchemaFieldsUpdateProcessorFactory();
 
 
   @Override
   public UpdateRequestProcessor getInstance(SolrQueryRequest req, SolrQueryResponse rsp, UpdateRequestProcessor next) {
 
-    GuessSchemaFieldsUpdateProcessor gsfup = new GuessSchemaFieldsUpdateProcessor(next);
-    gsfup.addSchemaFieldsUpdateProcessor = (AddSchemaFieldsUpdateProcessor)super.getInstance(req, rsp, next);
+    gsfup = new GuessSchemaFieldsUpdateProcessor(next);
+    gsfup.addSchemaFieldsUpdateProcessor = (AddSchemaFieldsUpdateProcessorFactory.AddSchemaFieldsUpdateProcessor)addSchemaFieldsUpdateProcessorFactory.getInstance(req, rsp, next);
     return gsfup;
 
   }
 
   @Override
-  public void inform(SolrCore core) {
+  public void init(NamedList args) {
+    inclusions = FieldMutatingUpdateProcessorFactory.parseSelectorParams(args);
+    addSchemaFieldsUpdateProcessorFactory.validateSelectorParams(inclusions);
+    inclusions.fieldNameMatchesSchemaField = false;  // Explicitly (non-configurably) require unknown field names
+    exclusions = FieldMutatingUpdateProcessorFactory.parseSelectorExclusionParams(args);
+    for (FieldMutatingUpdateProcessorFactory.SelectorParams exclusion : exclusions) {
+      addSchemaFieldsUpdateProcessorFactory.validateSelectorParams(exclusion);
+    }
+    Object defaultFieldTypeParam = args.remove(DEFAULT_FIELD_TYPE_PARAM);
+    if (null != defaultFieldTypeParam) {
+      if ( ! (defaultFieldTypeParam instanceof CharSequence)) {
+        throw new SolrException(SERVER_ERROR, "Init param '" + DEFAULT_FIELD_TYPE_PARAM + "' must be a <str>");
+      }
+      defaultFieldType = defaultFieldTypeParam.toString();
+    }
 
+    typeMappings = parseTypeMappings(args);
+    if (null == defaultFieldType && typeMappings.stream().noneMatch(AddSchemaFieldsUpdateProcessorFactory.TypeMapping::isDefault)) {
+      throw new SolrException(SERVER_ERROR, "Must specify either '" + DEFAULT_FIELD_TYPE_PARAM +
+          "' or declare one typeMapping as default.");
+    }
+
+    super.init(args);
+  }
+
+
+  @Override
+  public void inform(SolrCore core) {
+    solrResourceLoader = core.getResourceLoader();
+
+    for (AddSchemaFieldsUpdateProcessorFactory.TypeMapping typeMapping : typeMappings) {
+      typeMapping.populateValueClasses(core);
+    }
   }
 
 
   private class GuessSchemaFieldsUpdateProcessor extends UpdateRequestProcessor {
 
-    AddSchemaFieldsUpdateProcessor addSchemaFieldsUpdateProcessor;
+    AddSchemaFieldsUpdateProcessorFactory.AddSchemaFieldsUpdateProcessor addSchemaFieldsUpdateProcessor;
 
     public GuessSchemaFieldsUpdateProcessor(UpdateRequestProcessor next) {
       super(next);
     }
+
 
 
     @Override
@@ -79,20 +119,19 @@ public class GuessSchemaFieldsUpdateProcessorFactory extends AddSchemaFieldsUpda
       IndexSchema oldSchema = cmd.getReq().getSchema();
       while (true){
         List<SchemaField> newFields = new ArrayList<>();
-        Map<String,Map<Integer,List<CopyFieldDef>>> newCopyFields = new HashMap<>();
+        Map<String,Map<Integer,List<AddSchemaFieldsUpdateProcessorFactory.CopyFieldDef>>> newCopyFields = new HashMap<>();
 
-        FieldMutatingUpdateProcessor.FieldNameSelector selector = addSchemaFieldsUpdateProcessor.buildSelector(oldSchema);
         Map<String,List<SolrInputField>> unknownFields = new HashMap<>();
-        addSchemaFieldsUpdateProcessor.getUnknownFields(selector, doc, unknownFields);
+        addSchemaFieldsUpdateProcessor.getUnknownFields(SELECT_ALL_FIELDS, doc, unknownFields);
         for (final Map.Entry<String,List<SolrInputField>> entry : unknownFields.entrySet()) {
           String fieldName = entry.getKey();
           String fieldTypeName = defaultFieldType;
-          TypeMapping typeMapping = addSchemaFieldsUpdateProcessor.mapValueClassesToFieldType(entry.getValue());
+          AddSchemaFieldsUpdateProcessorFactory.TypeMapping typeMapping = addSchemaFieldsUpdateProcessor.mapValueClassesToFieldType(entry.getValue());
           if (typeMapping != null) {
             fieldTypeName = typeMapping.fieldTypeName;
             if (!typeMapping.copyFieldDefs.isEmpty()) {
               newCopyFields.put(fieldName,
-                  typeMapping.copyFieldDefs.stream().collect(Collectors.groupingBy(CopyFieldDef::getMaxChars)));
+                  typeMapping.copyFieldDefs.stream().collect(Collectors.groupingBy(AddSchemaFieldsUpdateProcessorFactory.CopyFieldDef::getMaxChars)));
             }
           }
           newFields.add(oldSchema.newField(fieldName, fieldTypeName, Collections.<String,Object>emptyMap()));
