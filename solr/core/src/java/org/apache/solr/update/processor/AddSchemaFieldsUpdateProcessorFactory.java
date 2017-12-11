@@ -49,6 +49,7 @@ import org.slf4j.LoggerFactory;
 import static org.apache.solr.common.SolrException.ErrorCode.BAD_REQUEST;
 import static org.apache.solr.common.SolrException.ErrorCode.SERVER_ERROR;
 import static org.apache.solr.core.ConfigSetProperties.IMMUTABLE_CONFIGSET_ARG;
+import static org.apache.solr.update.processor.FieldMutatingUpdateProcessor.SELECT_ALL_FIELDS;
 
 
 /**
@@ -143,12 +144,16 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
   private static final String DEST_PARAM = "dest";
   private static final String MAX_CHARS_PARAM = "maxChars";
   private static final String IS_DEFAULT_PARAM = "default";
+  private static final String DEFAULT_MODE = "addSchema";
+
 
   private List<TypeMapping> typeMappings = Collections.emptyList();
   private SelectorParams inclusions = new SelectorParams();
   private Collection<SelectorParams> exclusions = new ArrayList<>();
   private SolrResourceLoader solrResourceLoader = null;
   private String defaultFieldType;
+  private String mode;
+
 
   @Override
   public UpdateRequestProcessor getInstance(SolrQueryRequest req, 
@@ -157,8 +162,18 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
     return new AddSchemaFieldsUpdateProcessor(next);
   }
 
+  String getModeFromArgs(NamedList args){
+    Collection<String> modes = args.removeConfigArgs("mode");
+    if ( modes != null && modes.size()>0 ) {
+      return new ArrayList<>(modes).get(0);
+    }
+    else
+      return DEFAULT_MODE;
+  }
+
   @Override
   public void init(NamedList args) {
+    mode = getModeFromArgs(args);
     inclusions = FieldMutatingUpdateProcessorFactory.parseSelectorParams(args);
     validateSelectorParams(inclusions);
     inclusions.fieldNameMatchesSchemaField = false;  // Explicitly (non-configurably) require unknown field names
@@ -192,7 +207,7 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
     }
   }
 
-  private static List<TypeMapping> parseTypeMappings(NamedList args) {
+  static List<TypeMapping> parseTypeMappings(NamedList args) {
     List<TypeMapping> typeMappings = new ArrayList<>();
     List<Object> typeMappingsParams = args.getAll(TYPE_MAPPING_PARAM);
     for (Object typeMappingObj : typeMappingsParams) {
@@ -286,7 +301,7 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
     return typeMappings;
   }
 
-  private void validateSelectorParams(SelectorParams params) {
+  void validateSelectorParams(SelectorParams params) {
     if ( ! params.typeName.isEmpty()) {
       throw new SolrException(SERVER_ERROR, "'typeName' init param is not allowed in this processor");
     }
@@ -387,10 +402,11 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
         Map<String,Map<Integer,List<CopyFieldDef>>> newCopyFields = new HashMap<>();
         // build a selector each time through the loop b/c the schema we are
         // processing may have changed
-        FieldNameSelector selector = buildSelector(oldSchema);
-        Map<String,List<SolrInputField>> unknownFields = new HashMap<>();
-        getUnknownFields(selector, doc, unknownFields);
-        for (final Map.Entry<String,List<SolrInputField>> entry : unknownFields.entrySet()) {
+        FieldNameSelector selector = buildSelector(oldSchema, mode);
+
+        Map<String,List<SolrInputField>> fieldsConcerned = new HashMap<>();
+        getUnknownFields(selector, doc, fieldsConcerned);
+        for (final Map.Entry<String,List<SolrInputField>> entry : fieldsConcerned.entrySet()) {
           String fieldName = entry.getKey();
           String fieldTypeName = defaultFieldType;
           TypeMapping typeMapping = mapValueClassesToFieldType(entry.getValue());
@@ -532,7 +548,12 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
       }
     }
 
-    private FieldNameSelector buildSelector(IndexSchema schema) {
+
+    public FieldNameSelector buildSelector(IndexSchema schema, String mode) {
+      if ( mode.equals("trainMode") ){
+        //Todo : Add exclusions logic here
+        return SELECT_ALL_FIELDS;
+      }
       FieldNameSelector selector = FieldMutatingUpdateProcessor.createFieldNameSelector
         (solrResourceLoader, schema, inclusions, fieldName -> null == schema.getFieldTypeNoEx(fieldName));
 
