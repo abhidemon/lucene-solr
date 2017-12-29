@@ -28,6 +28,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.apache.solr.client.solrj.request.CollectionAdminRequest;
+import org.apache.solr.cloud.CreateCollectionCmd;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.SolrInputDocument;
 import org.apache.solr.common.SolrInputField;
@@ -149,6 +151,9 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
   private Collection<SelectorParams> exclusions = new ArrayList<>();
   private SolrResourceLoader solrResourceLoader = null;
   private String defaultFieldType;
+  static boolean trainMode = true;
+  static Map<String,Map<String, Set<String>>> candidateFieldTypesOfTheVariousTypesOfATrainedCore = new HashMap<>();
+
 
   @Override
   public UpdateRequestProcessor getInstance(SolrQueryRequest req, 
@@ -368,7 +373,26 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
     public AddSchemaFieldsUpdateProcessor(UpdateRequestProcessor next) {
       super(next);
     }
-    
+
+    private Set<String> getAcceptableFieldTypesForTrainedCore(SolrCore core, String fieldName){
+      String trainedCoreName = core.getCoreDescriptor().getCollectionName() + "_train";
+      Map<String, Set<String>> trainedFieldMap = candidateFieldTypesOfTheVariousTypesOfATrainedCore.get(trainedCoreName);
+      if (trainedFieldMap==null){
+        trainedFieldMap = new HashMap<>();
+        candidateFieldTypesOfTheVariousTypesOfATrainedCore.put(trainedCoreName, trainedFieldMap);
+      }
+      if (trainedFieldMap.containsKey(fieldName)){
+        return trainedFieldMap.get(fieldName);
+      }
+      Set<String> acceptableFields = new HashSet<>();
+      trainedFieldMap.put(fieldName, acceptableFields);
+      return acceptableFields;
+    }
+
+    public void getTrainedData(SolrCore core){
+      getAcceptableFieldTypesForTrainedCore(core, fieldName);
+    }
+
     @Override
     public void processAdd(AddUpdateCommand cmd) throws IOException {
       if ( ! cmd.getReq().getSchema().isMutable()) {
@@ -400,8 +424,14 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
               newCopyFields.put(fieldName,
                   typeMapping.copyFieldDefs.stream().collect(Collectors.groupingBy(CopyFieldDef::getMaxChars)));
             }
-          } 
-          newFields.add(oldSchema.newField(fieldName, fieldTypeName, Collections.<String,Object>emptyMap()));
+          }
+          if (trainMode){
+            getAcceptableFieldTypesForTrainedCore(core, fieldName).add(fieldTypeName);
+            //CollectionAdminRequest.createCollection(configName, 1, 1).process(solrClient);
+          } else {
+            newFields.add(oldSchema.newField(fieldName, fieldTypeName, Collections.<String,Object>emptyMap()));
+          }
+
         }
         if (newFields.isEmpty() && newCopyFields.isEmpty()) {
           // nothing to do - no fields will be added - exit from the retry loop
@@ -533,6 +563,9 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
     }
 
     private FieldNameSelector buildSelector(IndexSchema schema) {
+      if (trainMode){
+        return FieldMutatingUpdateProcessor.SELECT_ALL_FIELDS;
+      }
       FieldNameSelector selector = FieldMutatingUpdateProcessor.createFieldNameSelector
         (solrResourceLoader, schema, inclusions, fieldName -> null == schema.getFieldTypeNoEx(fieldName));
 
