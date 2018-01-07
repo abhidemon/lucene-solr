@@ -19,6 +19,7 @@ package org.apache.solr.update.processor;
 import java.io.IOException;
 import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -145,14 +146,35 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
   private static final String DEST_PARAM = "dest";
   private static final String MAX_CHARS_PARAM = "maxChars";
   private static final String IS_DEFAULT_PARAM = "default";
+  private static final String MODE = "mode";
+
 
   private List<TypeMapping> typeMappings = Collections.emptyList();
   private SelectorParams inclusions = new SelectorParams();
   private Collection<SelectorParams> exclusions = new ArrayList<>();
   private SolrResourceLoader solrResourceLoader = null;
   private String defaultFieldType;
-  static boolean trainMode = true;
-  static Map<String, MostRelavantFieldTypes> trainedCoreToMostRelevantFieldTypesMapping = new ConcurrentHashMap<>();
+  private URP_MODES mode = URP_MODES.update;
+  static final Map<String, MostRelavantFieldTypes> trainedCoreToMostRelevantFieldTypesMapping = new ConcurrentHashMap<>();
+
+  enum URP_MODES {
+    train("train"),
+    update("update");
+
+    private String mode;
+    private URP_MODES(String mode) {
+      this.mode = mode;
+    }
+
+    @Override
+    public String toString() {
+      return mode;
+    }
+    static String allowedValues(){
+      return Arrays.asList(values()).toString();
+    }
+  }
+
 
   @Override
   public UpdateRequestProcessor getInstance(SolrQueryRequest req, 
@@ -178,6 +200,14 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
       defaultFieldType = defaultFieldTypeParam.toString();
     }
 
+    Object modeParam = args.remove(MODE);
+    if (null != modeParam) {
+      try {
+        mode = URP_MODES.valueOf(modeParam.toString());
+      } catch (Exception e) {
+        throw new SolrException(SERVER_ERROR, "Init param '" + MODE + "' must be one of : "+ URP_MODES.allowedValues());
+      }
+    }
     typeMappings = parseTypeMappings(args);
     if (null == defaultFieldType && typeMappings.stream().noneMatch(TypeMapping::isDefault)) {
       throw new SolrException(SERVER_ERROR, "Must specify either '" + DEFAULT_FIELD_TYPE_PARAM + 
@@ -434,8 +464,9 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
                   typeMapping.copyFieldDefs.stream().collect(Collectors.groupingBy(CopyFieldDef::getMaxChars)));
             }
           }
-          if (trainMode){
+          if (URP_MODES.train.equals(mode)){
             trainSchema(core, fieldName, fieldTypeName);
+            //ZkController zKcontroller = core.getCoreContainer().getZkController();
           } else {
             newFields.add(oldSchema.newField(fieldName, fieldTypeName, Collections.<String,Object>emptyMap()));
           }
@@ -571,7 +602,7 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
     }
 
     private FieldNameSelector buildSelector(IndexSchema schema) {
-      if (trainMode){
+      if (URP_MODES.train.equals(mode)){
         return FieldMutatingUpdateProcessor.SELECT_ALL_FIELDS;
       }
       FieldNameSelector selector = FieldMutatingUpdateProcessor.createFieldNameSelector
