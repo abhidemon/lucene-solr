@@ -26,10 +26,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
-import org.apache.solr.client.solrj.request.CollectionAdminRequest;
-import org.apache.solr.cloud.CreateCollectionCmd;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.SolrInputDocument;
 import org.apache.solr.common.SolrInputField;
@@ -40,6 +39,7 @@ import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.response.SolrQueryResponse;
 import org.apache.solr.schema.IndexSchema;
 import org.apache.solr.schema.ManagedIndexSchema;
+import org.apache.solr.schema.MostRelavantFieldTypes;
 import org.apache.solr.schema.SchemaField;
 import org.apache.solr.update.AddUpdateCommand;
 import org.apache.solr.update.processor.FieldMutatingUpdateProcessor.FieldNameSelector;
@@ -152,8 +152,7 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
   private SolrResourceLoader solrResourceLoader = null;
   private String defaultFieldType;
   static boolean trainMode = true;
-  static Map<String,Map<String, Set<String>>> candidateFieldTypesOfTheVariousTypesOfATrainedCore = new HashMap<>();
-
+  static Map<String, MostRelavantFieldTypes> trainedCoreToMostRelevantFieldTypesMapping = new ConcurrentHashMap<>();
 
   @Override
   public UpdateRequestProcessor getInstance(SolrQueryRequest req, 
@@ -374,23 +373,33 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
       super(next);
     }
 
-    private Set<String> getAcceptableFieldTypesForTrainedCore(SolrCore core, String fieldName){
-      String trainedCoreName = core.getCoreDescriptor().getCollectionName() + "_train";
-      Map<String, Set<String>> trainedFieldMap = candidateFieldTypesOfTheVariousTypesOfATrainedCore.get(trainedCoreName);
-      if (trainedFieldMap==null){
-        trainedFieldMap = new HashMap<>();
-        candidateFieldTypesOfTheVariousTypesOfATrainedCore.put(trainedCoreName, trainedFieldMap);
-      }
-      if (trainedFieldMap.containsKey(fieldName)){
-        return trainedFieldMap.get(fieldName);
-      }
-      Set<String> acceptableFields = new HashSet<>();
-      trainedFieldMap.put(fieldName, acceptableFields);
-      return acceptableFields;
+    private String trainCoreName(SolrCore core){
+      return core.getCoreDescriptor().getCollectionName() + "_train";
     }
 
-    public void getTrainedData(SolrCore core){
-      getAcceptableFieldTypesForTrainedCore(core, fieldName);
+    /**
+     * Add the new fieldTypeName for the fieldName, to be decided the best fieldTypeName for this field.
+     * @param core
+     * @param fieldName
+     * @param fieldTypeName
+     */
+    private void trainSchema(SolrCore core, String fieldName, String fieldTypeName){
+
+      String trainedCoreName = trainCoreName(core);
+      trainedCoreToMostRelevantFieldTypesMapping.putIfAbsent(trainedCoreName, new MostRelavantFieldTypes());
+      trainedCoreToMostRelevantFieldTypesMapping.get( trainCoreName(core) )
+          .addAllowedFieldType( fieldName, fieldTypeName );
+
+    }
+
+    /**
+     * Will return map with FieldName -> MostSuitableFieldName.
+     * @param core
+     * @return
+     */
+    public Map<String, String> getTrainedSchema(SolrCore core){
+      MostRelavantFieldTypes mostRelavantFieldTypes = trainedCoreToMostRelevantFieldTypesMapping.get(trainCoreName(core));
+      return mostRelavantFieldTypes.getMostRelevantFieldTypes();
     }
 
     @Override
@@ -426,8 +435,7 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
             }
           }
           if (trainMode){
-            getAcceptableFieldTypesForTrainedCore(core, fieldName).add(fieldTypeName);
-            //CollectionAdminRequest.createCollection(configName, 1, 1).process(solrClient);
+            trainSchema(core, fieldName, fieldTypeName);
           } else {
             newFields.add(oldSchema.newField(fieldName, fieldTypeName, Collections.<String,Object>emptyMap()));
           }
