@@ -19,14 +19,21 @@ package org.apache.solr.schema;
 
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.UnknownTypeException;
+import java.nio.charset.StandardCharsets;
 import java.util.BitSet;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.SortedSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+import org.apache.solr.common.SolrException;
+import org.apache.solr.common.cloud.SolrZkClient;
+import org.apache.solr.common.cloud.ZkStateReader;
 import org.apache.solr.core.SolrCore;
+import org.apache.zookeeper.KeeperException;
+import org.noggit.JSONUtil;
 
 /**
  * Created by abhi on 07/01/18.
@@ -38,7 +45,13 @@ public class MostRelavantFieldTypes {
   static final BitSet _long = BitSet.valueOf(new byte[]{4});
   static final BitSet _boolean = BitSet.valueOf(new byte[]{2});
   static final BitSet _date = BitSet.valueOf(new byte[]{1});
-  static final Map<String, MostRelavantFieldTypes> trainedCoreToMostRelevantFieldTypesMapping = new ConcurrentHashMap<>();
+  static final Map<String, MostRelavantFieldTypes> cacheOfTrainedCoreToMostRelevantFieldTypesMapping = new ConcurrentHashMap<>();
+
+  ZkStateReader zkStateReader;
+
+
+
+
 
   private Map<String, BitSetReprForFieldType> fieldNameToFieldTypesMapping = new ConcurrentHashMap<>();
 
@@ -61,6 +74,7 @@ public class MostRelavantFieldTypes {
   }
 
   public void addAllowedFieldType(String fieldName, String fieldTypeName){
+
     BitSetReprForFieldType previousEntry = fieldNameToFieldTypesMapping.putIfAbsent(fieldName, new BitSetReprForFieldType(fieldTypeName));
     if (previousEntry!=null){
       previousEntry.applyOR_Oprn(fieldTypeName);
@@ -128,6 +142,21 @@ public class MostRelavantFieldTypes {
 
   }
 
+  private static String getPropertyPath(String coreName, String fieldName, String fieldTypeName){
+    return "/train/"+coreName+"/schema/"+fieldName+"/"+fieldTypeName;
+  }
+
+  private byte[] getPropertyData(Map<String, Object> newProps) {
+    if (newProps != null) {
+      String propertyDataStr = JSONUtil.toJSON(newProps);
+      if (propertyDataStr == null) {
+        throw new SolrException(SolrException.ErrorCode.BAD_REQUEST, "Invalid property specification");
+      }
+      return propertyDataStr.getBytes(StandardCharsets.UTF_8);
+    }
+    return null;
+  }
+
   /**
    * Add the new fieldTypeName for the fieldName, to be decided the best fieldTypeName for this field.
    * @param core
@@ -136,9 +165,25 @@ public class MostRelavantFieldTypes {
    */
   public static void trainSchema(SolrCore core, String fieldName, String fieldTypeName){
 
-    String trainedCoreName = trainCoreName(core);
-    trainedCoreToMostRelevantFieldTypesMapping.putIfAbsent(trainedCoreName, new MostRelavantFieldTypes());
-    trainedCoreToMostRelevantFieldTypesMapping.get( trainCoreName(core) )
+    String coreName = core.getCoreDescriptor().getCollectionName();
+    SolrZkClient client = core.getCoreContainer().getZkController().getZkClient();
+    try {
+      int bute
+      client.makePath(
+          getPropertyPath(coreName, fieldName, fieldTypeName),
+          null,
+
+
+
+      );
+    } catch (KeeperException e) {
+      e.printStackTrace();
+    } catch (InterruptedException e) {
+      e.printStackTrace();
+    }
+
+    cacheOfTrainedCoreToMostRelevantFieldTypesMapping.putIfAbsent(coreName, new MostRelavantFieldTypes());
+    cacheOfTrainedCoreToMostRelevantFieldTypesMapping.get( coreName )
         .addAllowedFieldType( fieldName, fieldTypeName );
 
   }
@@ -149,13 +194,14 @@ public class MostRelavantFieldTypes {
    * @return
    */
   public static Map<String, String> getTrainedSchema(SolrCore core){
-    MostRelavantFieldTypes mostRelavantFieldTypes = trainedCoreToMostRelevantFieldTypesMapping.get(trainCoreName(core));
+    MostRelavantFieldTypes mostRelavantFieldTypes = cacheOfTrainedCoreToMostRelevantFieldTypesMapping.get(
+        core.getCoreDescriptor().getCollectionName());
     return mostRelavantFieldTypes.getMostRelevantFieldTypes();
   }
 
-  private static String trainCoreName(SolrCore core){
+/*  private static String trainCoreName(SolrCore core){
     return core.getCoreDescriptor().getCollectionName() + "_train";
-  }
+  }*/
 
 
 
