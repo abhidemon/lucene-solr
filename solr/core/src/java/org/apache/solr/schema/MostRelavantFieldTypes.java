@@ -26,6 +26,8 @@ import java.util.SortedSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+import org.apache.solr.core.SolrCore;
+
 /**
  * Created by abhi on 07/01/18.
  */
@@ -36,6 +38,7 @@ public class MostRelavantFieldTypes {
   static final BitSet _long = BitSet.valueOf(new byte[]{4});
   static final BitSet _boolean = BitSet.valueOf(new byte[]{2});
   static final BitSet _date = BitSet.valueOf(new byte[]{1});
+  static final Map<String, MostRelavantFieldTypes> trainedCoreToMostRelevantFieldTypesMapping = new ConcurrentHashMap<>();
 
   private Map<String, BitSetReprForFieldType> fieldNameToFieldTypesMapping = new ConcurrentHashMap<>();
 
@@ -125,6 +128,34 @@ public class MostRelavantFieldTypes {
 
   }
 
+  /**
+   * Add the new fieldTypeName for the fieldName, to be decided the best fieldTypeName for this field.
+   * @param core
+   * @param fieldName
+   * @param fieldTypeName
+   */
+  public static void trainSchema(SolrCore core, String fieldName, String fieldTypeName){
+
+    String trainedCoreName = trainCoreName(core);
+    trainedCoreToMostRelevantFieldTypesMapping.putIfAbsent(trainedCoreName, new MostRelavantFieldTypes());
+    trainedCoreToMostRelevantFieldTypesMapping.get( trainCoreName(core) )
+        .addAllowedFieldType( fieldName, fieldTypeName );
+
+  }
+
+  /**
+   * Will return map with FieldName -> MostSuitableFieldName.
+   * @param core
+   * @return
+   */
+  public static Map<String, String> getTrainedSchema(SolrCore core){
+    MostRelavantFieldTypes mostRelavantFieldTypes = trainedCoreToMostRelevantFieldTypesMapping.get(trainCoreName(core));
+    return mostRelavantFieldTypes.getMostRelevantFieldTypes();
+  }
+
+  private static String trainCoreName(SolrCore core){
+    return core.getCoreDescriptor().getCollectionName() + "_train";
+  }
 
 
 
