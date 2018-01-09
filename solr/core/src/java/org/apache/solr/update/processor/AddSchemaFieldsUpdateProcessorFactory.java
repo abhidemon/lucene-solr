@@ -155,7 +155,6 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
   private SolrResourceLoader solrResourceLoader = null;
   private String defaultFieldType;
   private URP_MODES mode = URP_MODES.update;
-  static final Map<String, MostRelavantFieldTypes> trainedCoreToMostRelevantFieldTypesMapping = new ConcurrentHashMap<>();
 
   enum URP_MODES {
     train("train"),
@@ -403,34 +402,7 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
       super(next);
     }
 
-    private String trainCoreName(SolrCore core){
-      return core.getCoreDescriptor().getCollectionName() + "_train";
-    }
 
-    /**
-     * Add the new fieldTypeName for the fieldName, to be decided the best fieldTypeName for this field.
-     * @param core
-     * @param fieldName
-     * @param fieldTypeName
-     */
-    private void trainSchema(SolrCore core, String fieldName, String fieldTypeName){
-
-      String trainedCoreName = trainCoreName(core);
-      trainedCoreToMostRelevantFieldTypesMapping.putIfAbsent(trainedCoreName, new MostRelavantFieldTypes());
-      trainedCoreToMostRelevantFieldTypesMapping.get( trainCoreName(core) )
-          .addAllowedFieldType( fieldName, fieldTypeName );
-
-    }
-
-    /**
-     * Will return map with FieldName -> MostSuitableFieldName.
-     * @param core
-     * @return
-     */
-    public Map<String, String> getTrainedSchema(SolrCore core){
-      MostRelavantFieldTypes mostRelavantFieldTypes = trainedCoreToMostRelevantFieldTypesMapping.get(trainCoreName(core));
-      return mostRelavantFieldTypes.getMostRelevantFieldTypes();
-    }
 
     @Override
     public void processAdd(AddUpdateCommand cmd) throws IOException {
@@ -465,7 +437,7 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
             }
           }
           if (URP_MODES.train.equals(mode)){
-            trainSchema(core, fieldName, fieldTypeName);
+            MostRelavantFieldTypes.trainSchema(core, fieldName, fieldTypeName);
             //ZkController zKcontroller = core.getCoreContainer().getZkController();
           } else {
             newFields.add(oldSchema.newField(fieldName, fieldTypeName, Collections.<String,Object>emptyMap()));
