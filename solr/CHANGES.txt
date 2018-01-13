@@ -29,8 +29,12 @@ Apache UIMA 2.3.1
 Apache ZooKeeper 3.4.10
 Jetty 9.3.20.v20170531
 
+Upgrade Notes
+----------------------
 
-(No Changes)
+* LUCENE-7996: The 'func' query parser now returns scores that are equal to 0
+  when a negative value is produced. This change is due to the fact that
+  Lucene now requires scores to be positive. (Adrien Grand)
 
 ==================  7.3.0 ==================
 
@@ -45,9 +49,83 @@ Apache UIMA 2.3.1
 Apache ZooKeeper 3.4.10
 Jetty 9.3.20.v20170531
 
+Upgrade Notes
+----------------------
 
-(No Changes)
+* SOLR-11748: The throttling mechanism used to limit the rate of autoscaling events processed
+  has been removed. This deprecates the 'actionThrottlePeriodSeconds' setting in the set-properties
+  Autoscaling API which is now a no-op. Use the 'triggerCooldownPeriodSeconds' instead to pause event
+  processing.
 
+* SOLR-11798: The top-level <highlighting> syntax in solrconfig.xml is now formally
+  deprecated in favour of <searchComponent> equivalent syntax. See also SOLR-1696.
+
+New Features
+----------------------
+* SOLR-11285: Simulation framework for autoscaling. (ab)
+
+* LUCENE-2899: In the Solr analysis-extras contrib, added support for the
+  OpenNLP-based analysis components in the Lucene analysis/opennlp module:
+  tokenization, part-of-speech tagging, phrase chunking, and lemmatization.
+  Also added OpenNLP-based named entity extraction as a Solr update request
+  processor.  (Lance Norskog, Grant Ingersoll, Joern Kottmann, Em, Kai Gülzau,
+  Rene Nederhand, Robert Muir, Steven Bower, Steve Rowe)
+
+* SOLR-11201: Implement autoscaling trigger for arbitrary metrics that creates events when
+  a given metric breaches a threshold (shalin)
+
+* SOLR-11653: TimeRoutedAlias URP now auto-creates new collections on the fly according to alias metadata
+  rules that sets the time interval for each collection.  An internal Overseer command "ROUTEDALIAS_CREATECOLL"
+  was created to facilitate this.  (David Smiley)
+
+Bug Fixes
+----------------------
+
+* SOLR-11783: Rename core in solr standalone mode is not persisted (Erick Erickson)
+
+* SOLR-11555: If the query terms reduce to nothing, filter(clause) produces an NPE whereas
+  fq=clause does not (Erick Erickson)
+
+Optimizations
+----------------------
+
+* SOLR-11711: Fixed distributed processing of facet.field/facet.pivot sub requests to prevent requesting
+  unneccessary and excessive '0' count terms from each shard (Houston Putman via hossman)
+  
+Other Changes
+----------------------
+
+* SOLR-11575: Improve ref-guide solrj snippets via mock 'print()' method (Jason Gerlowski via hossman)
+
+* SOLR-11757: In tests, fix race condition on SolrException.ignoreException.
+  Also ensure we register "ignore_exception" in @BeforeClass (previously only @AfterClass)  (David Smiley)
+
+* SOLR-11754: Remove AbstractSolrTestCase which has long been supplanted by SolrTestCaseJ4. (David Smiley)
+
+* SOLR-11701: Upgrade to Tika 1.17 when available (Tim Allison, Karthik Ramachandran via Erick Erickson)
+
+* SOLR-11703: Solr Should Send Log Notifications if Ulimits are too low (Kevin Cowan via Erick Eickson)
+
+* SOLR-11793: Reduce code duplication w.r.t. RestTestHarness(es). (Christine Poerschke)
+
+* SOLR-7733: remove "optimize" from the UI. (Erick Erickson)
+
+* SOLR-11748: Remove Autoscaling action throttle. (shalin)
+
+* SOLR-11805: SolrJ's SolrResponse.getElaspedTime was sometimes a millisecond off. (David Smiley)
+
+* SOLR-11798: Formally deprecate top-level <highlighting> syntax in solrconfig.xml
+  in favour of <searchComponent> equivalent syntax. (Christine Poerschke)
+
+* SOLR-11801: Support customisation of the "highlighting" query response element.
+  (Ramsey Haddad, Pranav Murugappan, David Smiley, Christine Poerschke)
+
+==================  7.2.1 ==================
+
+Bug Fixes
+----------------------
+
+* SOLR-11771: Overseer can never process some last messages (Cao Manh Dat)
 
 ==================  7.2.0 ==================
 

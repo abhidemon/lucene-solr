@@ -120,6 +120,7 @@ final class WANDScorer extends Scorer {
   int tailSize;
 
   final long cost;
+  final MaxScoreSumPropagator maxScorePropagator;
 
   WANDScorer(Weight weight, Collection<Scorer> scorers) {
     super(weight);
@@ -154,6 +155,7 @@ final class WANDScorer extends Scorer {
       cost += w.cost;
     }
     this.cost = cost;
+    this.maxScorePropagator = new MaxScoreSumPropagator(scorers);
   }
 
   // returns a boolean so that it can be called from assert
@@ -184,10 +186,15 @@ final class WANDScorer extends Scorer {
 
   @Override
   public void setMinCompetitiveScore(float minScore) {
+    // Let this disjunction know about the new min score so that it can skip
+    // over clauses that produce low scores.
     assert minScore >= 0;
     long scaledMinScore = scaleMinScore(minScore, scalingFactor);
     assert scaledMinScore >= minCompetitiveScore;
     minCompetitiveScore = scaledMinScore;
+
+    // And also propagate to sub clauses.
+    maxScorePropagator.setMinCompetitiveScore(minScore);
   }
 
   @Override
@@ -375,8 +382,7 @@ final class WANDScorer extends Scorer {
 
   @Override
   public float maxScore() {
-    // TODO: implement but be careful about floating-point errors.
-    return Float.POSITIVE_INFINITY;
+    return maxScorePropagator.maxScore();
   }
 
   @Override

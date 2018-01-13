@@ -39,7 +39,7 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.memory.MemoryIndex;
 import org.apache.lucene.queries.CommonTermsQuery;
-import org.apache.lucene.queries.CustomScoreQuery;
+import org.apache.lucene.queries.function.FunctionScoreQuery;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.BoostQuery;
@@ -148,7 +148,7 @@ public class WeightedSpanTermExtractor {
       }
     } else if (query instanceof CommonTermsQuery) {
       // specialized since rewriting would change the result query 
-      // this query is TermContext sensitive.
+      // this query is index sensitive.
       extractWeightedTerms(terms, query, boost);
     } else if (query instanceof DisjunctionMaxQuery) {
       for (Query clause : ((DisjunctionMaxQuery) query)) {
@@ -211,8 +211,8 @@ public class WeightedSpanTermExtractor {
       }
     } else if (query instanceof MatchAllDocsQuery) {
       //nothing
-    } else if (query instanceof CustomScoreQuery){
-      extract(((CustomScoreQuery) query).getSubQuery(), boost, terms);
+    } else if (query instanceof FunctionScoreQuery) {
+      extract(((FunctionScoreQuery) query).getWrappedQuery(), boost, terms);
     } else if (isQueryUnsupported(query.getClass())) {
       // nothing
     } else {
