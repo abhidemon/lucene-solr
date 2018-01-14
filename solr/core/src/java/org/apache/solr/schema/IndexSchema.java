@@ -117,6 +117,8 @@ public class IndexSchema {
   public static final String ROOT_FIELD_NAME = "_root_";
   public static final String UNIQUE_KEY = "uniqueKey";
   public static final String VERSION = "version";
+  public static final String TRAINING_ID = "trainingId";
+
 
   private static final String AT = "@";
   private static final String DESTINATION_DYNAMIC_BASE = "destDynamicBase";

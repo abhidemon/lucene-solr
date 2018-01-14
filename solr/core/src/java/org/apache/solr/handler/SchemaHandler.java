@@ -18,6 +18,7 @@ package org.apache.solr.handler;
 
 import java.io.IOException;
 import java.lang.invoke.MethodHandles;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -25,6 +26,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 import org.apache.solr.api.Api;
 import org.apache.solr.api.ApiBag;
@@ -98,6 +100,45 @@ public class SchemaHandler extends RequestHandlerBase implements SolrCoreAware, 
     } else {
       handleGET(req, rsp);
     }
+  }
+
+  private void handlePOST(SolrQueryRequest req, SolrQueryResponse rsp) throws Exception {
+    String path = (String) req.getContext().get("path");
+    switch (path){
+      case "/schema":
+        try {
+          List errs = new SchemaManager(req).performOperations();
+          if (!errs.isEmpty()) rsp.add("errors", errs);
+        } catch (IOException e) {
+          rsp.add("errors", Collections.singletonList("Error reading input String " + e.getMessage()));
+          rsp.setException(e);
+        }
+        break;
+      case "/schema/train/start":
+        String result = startTraining();
+        // TODO : Handle error here
+        rsp.add(IndexSchema.TRAINING_ID, result);
+        break;
+
+      case "/schema/train":
+        String trainingId = req.getParams().get(IndexSchema.TRAINING_ID);
+        List<String> errors = new ArrayList<>();
+        if (trainingId==null){
+          errors.add("ERROR - Missing Param: 'trainingId'");
+        }else{
+
+        }
+
+        rsp.add("errors", errors);
+        break;
+
+    }
+  }
+
+
+  private String startTraining(){
+    //TODO : make some calls to the Training Classes
+    return UUID.randomUUID().toString();
   }
 
   @Override
