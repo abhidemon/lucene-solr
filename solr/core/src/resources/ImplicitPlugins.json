@@ -11,6 +11,13 @@
         "update.contentType": "application/json"
       }
     },
+    "/schema/train": {
+      "useParams":"_SCHEMA_TRAIN_JSON",
+      "class": "solr.UpdateRequestHandler",
+      "invariants": {
+        "update.contentType": "application/json"
+      }
+    },
     "/update/csv": {
       "useParams":"_UPDATE_CSV",
       "class": "solr.UpdateRequestHandler",
@@ -37,7 +44,6 @@
     "/schema": {
       "class": "solr.SchemaHandler",
       "useParams":"_SCHEMA"
-
     },
     "/replication": {
       "class": "solr.ReplicationHandler",
