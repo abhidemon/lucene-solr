@@ -45,16 +45,24 @@ public class MostRelavantFieldTypes {
   private static BitSet getBitSetForFieldType(String fieldTypeName){
     switch (fieldTypeName){
 
+      //TODO : Handle multivalued differently
+
+      case "text_general" :
       case "string" : return  (BitSet)_string.clone();
 
       case "tlong":
+      case "plongs":
       case "long"   : return (BitSet)_long.clone();
 
       case "tdouble" :
+      case "pdoubles":
       case "double" : return (BitSet)_double.clone();
 
+      case "pdates":
       case "date" : return (BitSet)_date.clone();
 
+
+      case "booleans":
       case "boolean" : return (BitSet)_boolean.clone();
       default : throw new RuntimeException("No BitSetMapping found for FieldType : "+fieldTypeName);
     }
@@ -144,7 +152,7 @@ public class MostRelavantFieldTypes {
   }
 
   /**
-   * Will return map with FieldName -> MostSuitableFieldName.
+   * Will return map with FieldName : MostSuitableFieldName.
    * @param core
    * @return
    */
