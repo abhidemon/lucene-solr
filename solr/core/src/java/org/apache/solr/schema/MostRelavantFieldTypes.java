@@ -19,14 +19,23 @@ package org.apache.solr.schema;
 
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.UnknownTypeException;
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.SortedSet;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+import org.apache.solr.common.SolrException;
+import org.apache.solr.common.params.SolrParams;
 import org.apache.solr.core.SolrCore;
+import org.apache.solr.request.SolrQueryRequest;
+import org.apache.solr.response.SolrQueryResponse;
 
 /**
  * Created by abhi on 07/01/18.
@@ -41,37 +50,39 @@ public class MostRelavantFieldTypes {
   static final Map<String, MostRelavantFieldTypes> trainedCoreToMostRelevantFieldTypesMapping = new ConcurrentHashMap<>();
 
   private Map<String, BitSetReprForFieldType> fieldNameToFieldTypesMapping = new ConcurrentHashMap<>();
+  private long createdTimeStamp = System.currentTimeMillis();
 
-  private static BitSet getBitSetForFieldType(String fieldTypeName){
+  private static BitSetReprForFieldType getBitSetForFieldType(String fieldTypeName){
+    boolean isMultiValued = false;
     switch (fieldTypeName){
 
       //TODO : Handle multivalued differently
 
-      case "text_general" :
-      case "string" : return  (BitSet)_string.clone();
+      case "text_general" :isMultiValued = true;
+      case "string" : return  new BitSetReprForFieldType((BitSet)_string.clone(), isMultiValued );
 
-      case "tlong":
-      case "plongs":
-      case "long"   : return (BitSet)_long.clone();
+      case "tlong"  :
+      case "plongs" : isMultiValued=true;
+      case "long"   : return  new BitSetReprForFieldType((BitSet)_long.clone(), isMultiValued );
 
       case "tdouble" :
-      case "pdoubles":
-      case "double" : return (BitSet)_double.clone();
+      case "pdoubles": isMultiValued = true;
+      case "double"  : return  new BitSetReprForFieldType((BitSet)_double.clone(), isMultiValued );
 
-      case "pdates":
-      case "date" : return (BitSet)_date.clone();
+      case "pdates": isMultiValued = true;
+      case "date"  : return  new BitSetReprForFieldType((BitSet)_date.clone(), isMultiValued );
 
-
-      case "booleans":
-      case "boolean" : return (BitSet)_boolean.clone();
+      case "booleans": isMultiValued = true;
+      case "boolean" : return  new BitSetReprForFieldType((BitSet)_double.clone(), isMultiValued );
       default : throw new RuntimeException("No BitSetMapping found for FieldType : "+fieldTypeName);
     }
   }
 
   public void addAllowedFieldType(String fieldName, String fieldTypeName){
-    BitSetReprForFieldType previousEntry = fieldNameToFieldTypesMapping.putIfAbsent(fieldName, new BitSetReprForFieldType(fieldTypeName));
+    BitSetReprForFieldType bitSetRepr = getBitSetForFieldType(fieldTypeName);
+    BitSetReprForFieldType previousEntry = fieldNameToFieldTypesMapping.putIfAbsent(fieldName, bitSetRepr);
     if (previousEntry!=null){
-      previousEntry.applyOR_Oprn(fieldTypeName);
+      previousEntry.applyOR_Oprn(bitSetRepr);
     }
   }
 
@@ -88,21 +99,26 @@ public class MostRelavantFieldTypes {
   /**
    *
    */
-  private class BitSetReprForFieldType {
+  private static class BitSetReprForFieldType {
 
     BitSet bitSetRepresentation;
+    boolean isMultiValued;
 
-    BitSetReprForFieldType(String fieldTypeName){
-      bitSetRepresentation = getBitSetForFieldType(fieldTypeName);
+    public BitSetReprForFieldType(BitSet bitSet, boolean isMultiValued) {
+      bitSetRepresentation = bitSet;
+      this.isMultiValued = isMultiValued;
     }
 
     // We want an instance level lock here
-    private synchronized void applyOR_Oprn(BitSet anotherFieldType){
-      bitSetRepresentation.or(anotherFieldType);
+    private synchronized void applyOR_Oprn(BitSetReprForFieldType anotherFieldType){
+      bitSetRepresentation.or( anotherFieldType.bitSetRepresentation );
+      isMultiValued |= anotherFieldType.isMultiValued;
     }
     // We want an instance level lock here
-    void applyOR_Oprn(String anotherFieldType){
-      bitSetRepresentation.or( getBitSetForFieldType(anotherFieldType) );
+    private synchronized void applyOR_Oprn(String anotherFieldType){
+      BitSetReprForFieldType bisetRepr = getBitSetForFieldType(anotherFieldType);
+      bitSetRepresentation.or( bisetRepr.bitSetRepresentation );
+      isMultiValued |= bisetRepr.isMultiValued;
     }
 
     /**
@@ -124,11 +140,11 @@ public class MostRelavantFieldTypes {
       long supportFieldTypeCode = bitSetRepresentation.toLongArray()[0];
       switch (supportFieldTypeCode+""){
         case "8":
-        case "12": return "double";
-        case "4" : return "long";
-        case "2" : return "boolean";
-        case "1" : return "date";
-        default: return "string";
+        case "12": return "pdoubles";
+        case "4" : return "plongs";
+        case "2" : return "booleans";
+        case "1" : return "pdate";
+        default: return "strings";
       }
 
     }
@@ -136,33 +152,68 @@ public class MostRelavantFieldTypes {
 
   }
 
+  private static String getTrainingIdAndVerify(SolrQueryRequest req){
+    String trainingId = req.getParams().get(IndexSchema.TRAIN_ID);
+    if ( trainingId==null || !trainedCoreToMostRelevantFieldTypesMapping.containsKey(trainingId) ){
+      String errmsg = trainingId==null?"Param '"+IndexSchema.TRAIN_ID+"' cannot be null!.":"Unknown trainingId:"+trainingId;
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST, errmsg);
+    }
+    return trainingId;
+  }
+
   /**
    * Add the new fieldTypeName for the fieldName, to be decided the best fieldTypeName for this field.
-   * @param core
+   * @param req
    * @param fieldName
    * @param fieldTypeName
    */
-  public static void trainSchema(SolrCore core, String fieldName, String fieldTypeName){
-
-    String trainedCoreName = trainCoreName(core);
-    trainedCoreToMostRelevantFieldTypesMapping.putIfAbsent(trainedCoreName, new MostRelavantFieldTypes());
-    trainedCoreToMostRelevantFieldTypesMapping.get( trainCoreName(core) )
+  public static void trainSchema(SolrQueryRequest req, String fieldName, String fieldTypeName){
+    String trainingId = getTrainingIdAndVerify(req);
+    trainedCoreToMostRelevantFieldTypesMapping.get( trainingId )
         .addAllowedFieldType( fieldName, fieldTypeName );
 
   }
 
+  public Map<String, Object> convertTrainingMetaDataToSchemaFormat(){
+    //{add-field-type:[{"name":"myNewTxtField3","class":"solr.TextField","positionIncrementGap":"100"},{"name":"myNewTxtField2","class":"solr.TextField","positionIncrementGap":"100"}]}
+    Map<String, Object> addSchemaData = new HashMap<>();
+    //addSchemaData.put("add-field-type", )
+    List fieldSchemas = new ArrayList();
+    for(Map.Entry<String, BitSetReprForFieldType> entry : fieldNameToFieldTypesMapping.entrySet()){
+      Map<String, Object> fieldSchema = new LinkedHashMap<>();
+      String fieldName = entry.getKey();
+      fieldSchema.put("name",fieldName);
+      String fieldType = entry.getValue().getMostSuitableFieldType();
+      fieldSchema.put("fieldType", fieldType);
+      fieldSchemas.add(fieldSchema);
+    }
+    addSchemaData.put("add-field-type", fieldSchemas);
+    return addSchemaData;
+  }
+
+  public static void getTrainedSchema(SolrQueryRequest req, SolrQueryResponse rsp){
+    String trainingId = getTrainingIdAndVerify(req);
+    MostRelavantFieldTypes mostRelavantFieldTypes = trainedCoreToMostRelevantFieldTypesMapping.get(trainingId);
+    rsp.add(IndexSchema.SCHEMA, mostRelavantFieldTypes.convertTrainingMetaDataToSchemaFormat());
+  }
+
   /**
    * Will return map with FieldName : MostSuitableFieldName.
-   * @param core
+   * @param trainingId
    * @return
    */
-  public static Map<String, String> getTrainedSchema(SolrCore core){
-    MostRelavantFieldTypes mostRelavantFieldTypes = trainedCoreToMostRelevantFieldTypesMapping.get(trainCoreName(core));
+  public static Map<String, String> getTrainedSchema(String trainingId){
+    MostRelavantFieldTypes mostRelavantFieldTypes = trainedCoreToMostRelevantFieldTypesMapping.get(trainingId);
     return mostRelavantFieldTypes.getMostRelevantFieldTypes();
   }
 
-  private static String trainCoreName(SolrCore core){
-    return core.getCoreDescriptor().getCollectionName() + "_train";
+  public static String generateTrainingId(SolrCore core){
+    String trainingID = UUID.randomUUID().toString();
+    MostRelavantFieldTypes existingValue = null;
+    do{
+      existingValue = trainedCoreToMostRelevantFieldTypesMapping.putIfAbsent(trainingID, new MostRelavantFieldTypes());
+    }while (existingValue!=null);
+    return trainingID;
   }
 
 

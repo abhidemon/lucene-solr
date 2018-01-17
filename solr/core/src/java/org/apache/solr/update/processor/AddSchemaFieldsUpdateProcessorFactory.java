@@ -437,7 +437,7 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
             }
           }
           if (URP_MODES.train.equals(mode)){
-            MostRelavantFieldTypes.trainSchema(core, fieldName, fieldTypeName);
+            MostRelavantFieldTypes.trainSchema(cmd.getReq(), fieldName, fieldTypeName);
             //ZkController zKcontroller = core.getCoreContainer().getZkController();
           } else {
             newFields.add(oldSchema.newField(fieldName, fieldTypeName, Collections.<String,Object>emptyMap()));

@@ -151,7 +151,23 @@ public class SchemaRequest extends AbstractSchemaRequest<SchemaResponse> {
     }
   }
 
-  /**
+  public static class SchemaLearn extends AbstractSchemaRequest<SchemaResponse.SchemaVersionResponse> {
+    public SchemaLearn() {
+      this(null);
+    }
+
+    public SchemaLearn(SolrParams q) {
+      super(METHOD.GET, "/schema/train/start", q);
+    }
+
+    @Override
+    protected SchemaResponse.SchemaVersionResponse createResponse(SolrClient client) {
+      return new SchemaResponse.SchemaVersionResponse();
+    }
+  }
+
+
+    /**
    * Schema API request that can be used to retrieve the version
    * of the schema for the specified collection.
    */
