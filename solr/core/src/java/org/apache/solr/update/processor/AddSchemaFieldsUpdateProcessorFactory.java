@@ -428,6 +428,31 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
         for (final Map.Entry<String,List<SolrInputField>> entry : unknownFields.entrySet()) {
           String fieldName = entry.getKey();
           String fieldTypeName = defaultFieldType;
+          if (URP_MODES.train.equals(mode)){
+
+            List<SolrInputField> inputFields = entry.getValue();
+            for (SolrInputField inputField : inputFields){
+
+              if (inputField.getValue() instanceof  List){
+                // Can be a candidate of MultiValued FieldType
+                for (Object val : (List)inputField.getValue()){
+                  SolrInputField innerInputField = new SolrInputField(inputField.getName());
+                  innerInputField.setValue(val);
+                  TypeMapping typeMapping = mapValueClassesToFieldType(Collections.singletonList(innerInputField));
+                  if (typeMapping!=null) {
+                    MostRelavantFieldTypes.trainSchema(cmd.getReq(), fieldName, typeMapping.fieldTypeName, true);
+                  }
+                }
+              }else{
+                TypeMapping typeMapping = mapValueClassesToFieldType(Collections.singletonList(inputField));
+                if (typeMapping!=null) {
+                  MostRelavantFieldTypes.trainSchema(cmd.getReq(), fieldName, typeMapping.fieldTypeName, false);
+                }
+              }
+
+            }
+            //ZkController zKcontroller = core.getCoreContainer().getZkController();
+          }
           TypeMapping typeMapping = mapValueClassesToFieldType(entry.getValue());
           if (typeMapping != null) {
             fieldTypeName = typeMapping.fieldTypeName;
@@ -436,10 +461,8 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
                   typeMapping.copyFieldDefs.stream().collect(Collectors.groupingBy(CopyFieldDef::getMaxChars)));
             }
           }
-          if (URP_MODES.train.equals(mode)){
-            MostRelavantFieldTypes.trainSchema(cmd.getReq(), fieldName, fieldTypeName);
-            //ZkController zKcontroller = core.getCoreContainer().getZkController();
-          } else {
+
+          if (URP_MODES.update.equals(mode)) {
             newFields.add(oldSchema.newField(fieldName, fieldTypeName, Collections.<String,Object>emptyMap()));
           }
 

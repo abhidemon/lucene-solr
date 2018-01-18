@@ -32,6 +32,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 import org.apache.solr.common.SolrException;
+import org.apache.solr.common.SolrInputField;
 import org.apache.solr.common.params.SolrParams;
 import org.apache.solr.core.SolrCore;
 import org.apache.solr.request.SolrQueryRequest;
@@ -52,34 +53,32 @@ public class MostRelavantFieldTypes {
   private Map<String, BitSetReprForFieldType> fieldNameToFieldTypesMapping = new ConcurrentHashMap<>();
   private long createdTimeStamp = System.currentTimeMillis();
 
-  private static BitSetReprForFieldType getBitSetForFieldType(String fieldTypeName){
-    boolean isMultiValued = false;
+  private static BitSetReprForFieldType getBitSetForFieldType(String fieldTypeName, boolean isMultiValued){
     switch (fieldTypeName){
 
-      //TODO : Handle multivalued differently
+      //Note: Ignore the mapped fieldTypeNames For multiValued, take the value of isMultiValued, final for creating BitSetRepr
+      case "text_general"  :
+      case "string"        : return new BitSetReprForFieldType((BitSet)_string.clone(), isMultiValued );
 
-      case "text_general" :isMultiValued = true;
-      case "string" : return  new BitSetReprForFieldType((BitSet)_string.clone(), isMultiValued );
+      case "tlong"         :
+      case "plongs"        :
+      case "long"          : return new BitSetReprForFieldType((BitSet)_long.clone(), isMultiValued );
 
-      case "tlong"  :
-      case "plongs" : isMultiValued=true;
-      case "long"   : return  new BitSetReprForFieldType((BitSet)_long.clone(), isMultiValued );
+      case "tdouble"       :
+      case "pdoubles"      :
+      case "double"        : return new BitSetReprForFieldType((BitSet)_double.clone(), isMultiValued );
 
-      case "tdouble" :
-      case "pdoubles": isMultiValued = true;
-      case "double"  : return  new BitSetReprForFieldType((BitSet)_double.clone(), isMultiValued );
+      case "pdates"        :
+      case "date"          : return new BitSetReprForFieldType((BitSet)_date.clone(), isMultiValued );
 
-      case "pdates": isMultiValued = true;
-      case "date"  : return  new BitSetReprForFieldType((BitSet)_date.clone(), isMultiValued );
-
-      case "booleans": isMultiValued = true;
-      case "boolean" : return  new BitSetReprForFieldType((BitSet)_double.clone(), isMultiValued );
+      case "booleans"      :
+      case "boolean"       : return new BitSetReprForFieldType((BitSet)_double.clone(), isMultiValued );
       default : throw new RuntimeException("No BitSetMapping found for FieldType : "+fieldTypeName);
     }
   }
 
-  public void addAllowedFieldType(String fieldName, String fieldTypeName){
-    BitSetReprForFieldType bitSetRepr = getBitSetForFieldType(fieldTypeName);
+  public void addAllowedFieldType(String fieldName, String fieldTypeName, boolean multiValued){
+    BitSetReprForFieldType bitSetRepr = getBitSetForFieldType(fieldTypeName, multiValued);
     BitSetReprForFieldType previousEntry = fieldNameToFieldTypesMapping.putIfAbsent(fieldName, bitSetRepr);
     if (previousEntry!=null){
       previousEntry.applyOR_Oprn(bitSetRepr);
@@ -102,7 +101,7 @@ public class MostRelavantFieldTypes {
   private static class BitSetReprForFieldType {
 
     BitSet bitSetRepresentation;
-    boolean isMultiValued;
+    boolean isMultiValued = false;
 
     public BitSetReprForFieldType(BitSet bitSet, boolean isMultiValued) {
       bitSetRepresentation = bitSet;
@@ -115,10 +114,10 @@ public class MostRelavantFieldTypes {
       isMultiValued |= anotherFieldType.isMultiValued;
     }
     // We want an instance level lock here
-    private synchronized void applyOR_Oprn(String anotherFieldType){
-      BitSetReprForFieldType bisetRepr = getBitSetForFieldType(anotherFieldType);
+    private synchronized void applyOR_Oprn(String anotherFieldType, boolean isMultiValued){
+      BitSetReprForFieldType bisetRepr = getBitSetForFieldType(anotherFieldType, isMultiValued);
       bitSetRepresentation.or( bisetRepr.bitSetRepresentation );
-      isMultiValued |= bisetRepr.isMultiValued;
+      this.isMultiValued |= bisetRepr.isMultiValued;
     }
 
     /**
@@ -140,11 +139,11 @@ public class MostRelavantFieldTypes {
       long supportFieldTypeCode = bitSetRepresentation.toLongArray()[0];
       switch (supportFieldTypeCode+""){
         case "8":
-        case "12": return "pdoubles";
-        case "4" : return "plongs";
-        case "2" : return "booleans";
-        case "1" : return "pdate";
-        default: return "strings";
+        case "12": return isMultiValued ? "pdoubles" : "pdouble";
+        case "4" : return isMultiValued ? "plongs"   : "plong";
+        case "2" : return isMultiValued ? "booleans" : "boolean" ;
+        case "1" : return "pdate" ;
+        default  : return isMultiValued ? "strings"  : "string";
       }
 
     }
@@ -167,11 +166,10 @@ public class MostRelavantFieldTypes {
    * @param fieldName
    * @param fieldTypeName
    */
-  public static void trainSchema(SolrQueryRequest req, String fieldName, String fieldTypeName){
+  public static void trainSchema(SolrQueryRequest req, String fieldName, String fieldTypeName, boolean multiValued){
     String trainingId = getTrainingIdAndVerify(req);
     trainedCoreToMostRelevantFieldTypesMapping.get( trainingId )
-        .addAllowedFieldType( fieldName, fieldTypeName );
-
+        .addAllowedFieldType( fieldName, fieldTypeName , multiValued);
   }
 
   public Map<String, Object> convertTrainingMetaDataToSchemaFormat(){
@@ -183,8 +181,10 @@ public class MostRelavantFieldTypes {
       Map<String, Object> fieldSchema = new LinkedHashMap<>();
       String fieldName = entry.getKey();
       fieldSchema.put("name",fieldName);
-      String fieldType = entry.getValue().getMostSuitableFieldType();
+      BitSetReprForFieldType bitsetRepr = entry.getValue();
+      String fieldType = bitsetRepr.getMostSuitableFieldType();
       fieldSchema.put("fieldType", fieldType);
+      fieldSchema.put("multivalued", bitsetRepr.isMultiValued);
       fieldSchemas.add(fieldSchema);
     }
     addSchemaData.put("add-field-type", fieldSchemas);
