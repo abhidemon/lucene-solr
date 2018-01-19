@@ -17,23 +17,18 @@
 
 package org.apache.solr.schema;
 
-import javax.lang.model.type.TypeMirror;
-import javax.lang.model.type.UnknownTypeException;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.SortedSet;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 import org.apache.solr.common.SolrException;
-import org.apache.solr.common.SolrInputField;
-import org.apache.solr.common.params.SolrParams;
 import org.apache.solr.core.SolrCore;
 import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.response.SolrQueryResponse;
@@ -50,7 +45,8 @@ public class MostRelavantFieldTypes {
   static final BitSet _date = BitSet.valueOf(new byte[]{1});
   static final Map<String, MostRelavantFieldTypes> trainedCoreToMostRelevantFieldTypesMapping = new ConcurrentHashMap<>();
 
-  private Map<String, BitSetReprForFieldType> fieldNameToFieldTypesMapping = new ConcurrentHashMap<>();
+  private final Map<String, Map<String, AtomicLong>> fieldNameWiseStatsMapping = new ConcurrentHashMap<>();
+  private final Map<String, BitSetReprForFieldType> fieldNameToFieldTypesMapping = new ConcurrentHashMap<>();
   private long createdTimeStamp = System.currentTimeMillis();
 
   private static BitSetReprForFieldType getBitSetForFieldType(String fieldTypeName, boolean isMultiValued){
@@ -80,6 +76,16 @@ public class MostRelavantFieldTypes {
   public void addAllowedFieldType(String fieldName, String fieldTypeName, boolean multiValued){
     BitSetReprForFieldType bitSetRepr = getBitSetForFieldType(fieldTypeName, multiValued);
     BitSetReprForFieldType previousEntry = fieldNameToFieldTypesMapping.putIfAbsent(fieldName, bitSetRepr);
+    synchronized (this){
+      if (fieldNameWiseStatsMapping.containsKey(fieldName)){
+        Map<String, AtomicLong> stats = fieldNameWiseStatsMapping.get(fieldName);
+        if (stats.containsKey(fieldTypeName)){
+          stats.get(fieldTypeName).incrementAndGet();
+        }else{
+          stats.put(fieldTypeName, new AtomicLong(1L));
+        }
+      }
+    }
     if (previousEntry!=null){
       previousEntry.applyOR_Oprn(bitSetRepr);
     }
@@ -172,7 +178,34 @@ public class MostRelavantFieldTypes {
         .addAllowedFieldType( fieldName, fieldTypeName , multiValued);
   }
 
-  public Map<String, Object> convertTrainingMetaDataToSchemaFormat(){
+  private Map<String, Object> getFieldWiseStats(){
+    Map<String, Object> statsData = new LinkedHashMap<>();
+    for(Map.Entry<String, Map<String, AtomicLong>> entry : fieldNameWiseStatsMapping.entrySet()){
+      List<Map<String, Object>> anomalyData = new ArrayList<>();
+      String fieldName = entry.getKey();
+      Map<String, AtomicLong> fieldTypeStats = entry.getValue();
+      int total = fieldTypeStats.size();
+      double LOWER_THRESHOLD = 5;// 5%
+      double UPPER_THRESHOLD = 80; //40%
+
+      for (Map.Entry<String, AtomicLong> fieldTypeFreq : fieldTypeStats.entrySet()){
+        // TODO : Here, take the TypeGroup's frequency instead of a SingleType's
+        double perc = (fieldTypeFreq.getValue().get()*100.0)/total;
+        if (perc<LOWER_THRESHOLD){
+          Map<String, Object> mp = new HashMap<>();
+          mp.put("fieldType", fieldTypeFreq.getKey());
+          mp.put("frequency", perc);
+          anomalyData.add( mp );
+        }
+      }
+      if (anomalyData.size()>0){
+        statsData.put("fieldName", anomalyData);
+      }
+    }
+    return statsData;
+    }
+
+  private Map<String, Object> convertTrainingMetaDataToSchemaFormat(){
     //{add-field-type:[{"name":"myNewTxtField3","class":"solr.TextField","positionIncrementGap":"100"},{"name":"myNewTxtField2","class":"solr.TextField","positionIncrementGap":"100"}]}
     Map<String, Object> addSchemaData = new HashMap<>();
     //addSchemaData.put("add-field-type", )
@@ -183,7 +216,7 @@ public class MostRelavantFieldTypes {
       fieldSchema.put("name",fieldName);
       BitSetReprForFieldType bitsetRepr = entry.getValue();
       String fieldType = bitsetRepr.getMostSuitableFieldType();
-      fieldSchema.put("fieldType", fieldType);
+      fieldSchema.put("type", fieldType);
       fieldSchema.put("multivalued", bitsetRepr.isMultiValued);
       fieldSchemas.add(fieldSchema);
     }
@@ -195,6 +228,14 @@ public class MostRelavantFieldTypes {
     String trainingId = getTrainingIdAndVerify(req);
     MostRelavantFieldTypes mostRelavantFieldTypes = trainedCoreToMostRelevantFieldTypesMapping.get(trainingId);
     rsp.add(IndexSchema.SCHEMA, mostRelavantFieldTypes.convertTrainingMetaDataToSchemaFormat());
+    try{
+      if ( Boolean.valueOf(req.getParams().get("enableStats"))){
+        rsp.add("stats", mostRelavantFieldTypes.getFieldWiseStats());
+      }
+    }catch (Exception e){
+      e.printStackTrace();
+    }
+
   }
 
   /**
