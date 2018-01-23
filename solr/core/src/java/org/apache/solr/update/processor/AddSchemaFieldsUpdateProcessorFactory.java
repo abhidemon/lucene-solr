@@ -216,6 +216,17 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
     super.init(args);
   }
 
+  public static String getDefaultFieldType(NamedList args){
+    Object defaultFieldTypeParam = args.remove(DEFAULT_FIELD_TYPE_PARAM);
+    if (null != defaultFieldTypeParam) {
+      if ( ! (defaultFieldTypeParam instanceof CharSequence)) {
+        throw new SolrException(SERVER_ERROR, "Init param '" + DEFAULT_FIELD_TYPE_PARAM + "' must be a <str>");
+      }
+      return defaultFieldTypeParam.toString();
+    }
+    return null;
+  }
+
   @Override
   public void inform(SolrCore core) {
     solrResourceLoader = core.getResourceLoader();
@@ -319,7 +330,7 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
     return typeMappings;
   }
 
-  private void validateSelectorParams(SelectorParams params) {
+  public static void validateSelectorParams(SelectorParams params) {
     if ( ! params.typeName.isEmpty()) {
       throw new SolrException(SERVER_ERROR, "'typeName' init param is not allowed in this processor");
     }
@@ -396,6 +407,30 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
       }
     }
   }
+
+  /**
+   * Recursively find unknown fields in the given doc and its child documents, if any.
+   */
+  public static void getUnknownFields
+  (FieldNameSelector selector, SolrInputDocument doc, Map<String,List<SolrInputField>> unknownFields) {
+    for (final String fieldName : doc.getFieldNames()) {
+      if (selector.shouldMutate(fieldName)) { // returns false if the field already exists in the current schema
+        List<SolrInputField> solrInputFields = unknownFields.get(fieldName);
+        if (null == solrInputFields) {
+          solrInputFields = new ArrayList<>();
+          unknownFields.put(fieldName, solrInputFields);
+        }
+        solrInputFields.add(doc.getField(fieldName));
+      }
+    }
+    List<SolrInputDocument> childDocs = doc.getChildDocuments();
+    if (null != childDocs) {
+      for (SolrInputDocument childDoc : childDocs) {
+        getUnknownFields(selector, childDoc, unknownFields);
+      }
+    }
+  }
+
 
   private class AddSchemaFieldsUpdateProcessor extends UpdateRequestProcessor {
     public AddSchemaFieldsUpdateProcessor(UpdateRequestProcessor next) {
@@ -542,29 +577,6 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
         }
       }
       super.processAdd(cmd);
-    }
-
-    /**
-     * Recursively find unknown fields in the given doc and its child documents, if any.
-     */
-    private void getUnknownFields
-    (FieldNameSelector selector, SolrInputDocument doc, Map<String,List<SolrInputField>> unknownFields) {
-      for (final String fieldName : doc.getFieldNames()) {
-        if (selector.shouldMutate(fieldName)) { // returns false if the field already exists in the current schema
-          List<SolrInputField> solrInputFields = unknownFields.get(fieldName);
-          if (null == solrInputFields) {
-            solrInputFields = new ArrayList<>();
-            unknownFields.put(fieldName, solrInputFields);
-          }
-          solrInputFields.add(doc.getField(fieldName));
-        }
-      }
-      List<SolrInputDocument> childDocs = doc.getChildDocuments();
-      if (null != childDocs) {
-        for (SolrInputDocument childDoc : childDocs) {
-          getUnknownFields(selector, childDoc, unknownFields);
-        }
-      }
     }
 
     /**
