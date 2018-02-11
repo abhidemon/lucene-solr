@@ -32,20 +32,30 @@ import org.apache.solr.core.SolrCore;
 import org.apache.solr.core.SolrResourceLoader;
 import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.response.SolrQueryResponse;
+import org.apache.solr.schema.MostRelavantFieldTypes;
 import org.apache.solr.update.AddUpdateCommand;
 import org.apache.solr.util.plugin.SolrCoreAware;
 import org.apache.solr.update.processor.FieldMutatingUpdateProcessor.FieldNameSelector;
 
+import org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.TypeMapping;
+import org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.CopyFieldDef;
+import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.DEFAULT_FIELD_TYPE_PARAM;
+import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.getDefaultFieldType;
+
+
 import static org.apache.solr.update.processor.AddSchemaFieldsUpdateProcessorFactory.validateSelectorParams;
 import static org.apache.solr.update.processor.FieldMutatingUpdateProcessor.SELECT_ALL_FIELDS;
-
+import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.getUnknownFields;
+import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.mapValueClassesToFieldType;
+import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.parseTypeMappings;
+//return FieldMutatingUpdateProcessor.SELECT_ALL_FIELDS;
 /**
  * Created by abhi on 21/01/18.
  */
 public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProcessorFactory
     implements SolrCoreAware, UpdateRequestProcessorFactory.RunAlways  {
 
-  private List<AddSchemaFieldsUpdateProcessorFactory.TypeMapping> typeMappings = Collections.emptyList();
+  private List<TypeMapping> typeMappings = Collections.emptyList();
   private FieldMutatingUpdateProcessorFactory.SelectorParams inclusions = new FieldMutatingUpdateProcessorFactory.SelectorParams();
   private Collection<FieldMutatingUpdateProcessorFactory.SelectorParams> exclusions = new ArrayList<>();
   private SolrResourceLoader solrResourceLoader = null;
@@ -54,12 +64,16 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
 
   @Override
   public void inform(SolrCore core) {
+    solrResourceLoader = core.getResourceLoader();
 
+    for (TypeMapping typeMapping : typeMappings) {
+      typeMapping.populateValueClasses(core);
+    }
   }
 
   @Override
   public UpdateRequestProcessor getInstance(SolrQueryRequest req, SolrQueryResponse rsp, UpdateRequestProcessor next) {
-    return null;
+    return new LearnSchemaUpdateRequestProcessor(next);
   }
 
   @Override
@@ -68,9 +82,11 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
     validateSelectorParams(inclusions);
     inclusions.fieldNameMatchesSchemaField = false;  // Explicitly (non-configurably) require unknown field names
     exclusions = FieldMutatingUpdateProcessorFactory.parseSelectorExclusionParams(args);
-
-    AddSchemaFieldsUpdateProcessorFactory.getDefaultFieldType(args);
-
+    for (FieldMutatingUpdateProcessorFactory.SelectorParams exclusion : exclusions) {
+      validateSelectorParams(exclusion);
+    }
+    defaultFieldType = getDefaultFieldType(args);
+    typeMappings = parseTypeMappings(args);
 
     super.init(args);
   }
@@ -89,16 +105,35 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
 
       Map<String,List<SolrInputField>> unknownFields = new HashMap<>();
       FieldNameSelector selector = SELECT_ALL_FIELDS;
-      AddSchemaFieldsUpdateProcessorFactory.getUnknownFields(selector, doc, unknownFields);
+      getUnknownFields(selector, doc, unknownFields);
 
       for (final Map.Entry<String,List<SolrInputField>> entry : unknownFields.entrySet()) {
         String fieldName = entry.getKey();
-        String fieldTypeName = AddSchemaFieldsUpdateProcessorFactory.getDefaultFieldType(args);
+        String fieldTypeName = defaultFieldType;
+        List<SolrInputField> inputFields = entry.getValue();
+
+        for (SolrInputField inputField : inputFields){
+
+          if (inputField.getValue() instanceof  List){
+            // Can be a candidate of MultiValued FieldType
+            for (Object val : (List)inputField.getValue()){
+              SolrInputField innerInputField = new SolrInputField(inputField.getName());
+              innerInputField.setValue(val);
+              TypeMapping typeMapping = mapValueClassesToFieldType(Collections.singletonList(innerInputField), typeMappings);
+              if (typeMapping!=null) {
+                MostRelavantFieldTypes.trainSchema(cmd.getReq(), fieldName, typeMapping.fieldTypeName, true);
+              }
+            }
+          }else{
+            TypeMapping typeMapping = mapValueClassesToFieldType(Collections.singletonList(inputField), typeMappings);
+            if (typeMapping!=null) {
+              MostRelavantFieldTypes.trainSchema(cmd.getReq(), fieldName, typeMapping.fieldTypeName, false);
+            }
+          }
+        }
 
       }
-
       super.processAdd(cmd);
-
     }
   }
 
