@@ -19,7 +19,6 @@ package org.apache.solr.update.processor;
 import java.io.IOException;
 import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -27,7 +26,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 import org.apache.solr.common.SolrException;
@@ -40,7 +38,6 @@ import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.response.SolrQueryResponse;
 import org.apache.solr.schema.IndexSchema;
 import org.apache.solr.schema.ManagedIndexSchema;
-import org.apache.solr.schema.MostRelavantFieldTypes;
 import org.apache.solr.schema.SchemaField;
 import org.apache.solr.update.AddUpdateCommand;
 import org.apache.solr.update.processor.FieldMutatingUpdateProcessor.FieldNameSelector;
@@ -144,8 +141,6 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
     implements SolrCoreAware, UpdateRequestProcessorFactory.RunAlways {
   private static final Logger log = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
-  private static final String MODE = "mode";
-
 
   private List<TypeMapping> typeMappings = Collections.emptyList();
   private SelectorParams inclusions = new SelectorParams();
@@ -212,8 +207,6 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
       super(next);
     }
 
-
-
     @Override
     public void processAdd(AddUpdateCommand cmd) throws IOException {
       if ( ! cmd.getReq().getSchema().isMutable()) {
@@ -246,7 +239,6 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
                   typeMapping.copyFieldDefs.stream().collect(Collectors.groupingBy(CopyFieldDef::getMaxChars)));
             }
           }
-
           newFields.add(oldSchema.newField(fieldName, fieldTypeName, Collections.<String,Object>emptyMap()));
 
         }
@@ -286,7 +278,6 @@ public class AddSchemaFieldsUpdateProcessorFactory extends UpdateRequestProcesso
           builder.append("]");
           log.debug(builder.toString());
         }
-
         // Need to hold the lock during the entire attempt to ensure that
         // the schema on the request is the latest
         synchronized (oldSchema.getSchemaUpdateLock()) {

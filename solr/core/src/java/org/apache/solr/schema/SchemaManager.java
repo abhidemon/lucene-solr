@@ -230,7 +230,7 @@ public class SchemaManager {
         if (op.hasError())
           return false;
         try {
-          SchemaField field = mgr.managedIndexSchema.newField(name, type, op.getValuesExcluding(NAME, TYPE, "multivalued"));
+          SchemaField field = mgr.managedIndexSchema.newField(name, type, op.getValuesExcluding(NAME, TYPE));
           mgr.managedIndexSchema
               = mgr.managedIndexSchema.addFields(singletonList(field), Collections.emptyMap(), false);
           return true;

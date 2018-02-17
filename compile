@@ -1,5 +1,0 @@
-solr/bin/solr stop -all &&
-ant compile &&
-echi "\n=================================\n"
-(cd solr && ant server && sh guesschema.sh)
-tail -f solr/server/logs/solr.log
