@@ -18,13 +18,19 @@
 package org.apache.solr.update.processor;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 
+import com.google.common.collect.Sets;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.SolrInputDocument;
 import org.apache.solr.common.SolrInputField;
@@ -47,6 +53,7 @@ public class SchemaMutatingUpdateRequestProcessorFactory  {
   private static final String DEST_PARAM = "dest";
   private static final String MAX_CHARS_PARAM = "maxChars";
   private static final String IS_DEFAULT_PARAM = "default";
+  private static final String TYPE_TREE_PARAM = "typeTree";
 
   public static class TypeMapping {
     public String fieldTypeName;
@@ -180,6 +187,162 @@ public class SchemaMutatingUpdateRequestProcessorFactory  {
     } else {
       return null;
     }
+  }
+
+  /**
+   * This class is going to represent a type in the Type-Tree.
+   * Every Node contains the list of types it can support, and also keeps a reference to it's parent.
+   */
+  public class TypeTree{
+    String name;
+    TypeTree parentType;
+    List<TypeTree> typesSupported;
+    Integer level;
+
+    public List<TypeTree> getAllTypes(){
+      List<TypeTree> typeTreeList = new LinkedList<>();
+      postOrderTraversal(typeTreeList);
+      return typeTreeList;
+    }
+
+    private void postOrderTraversal(List<TypeTree> typeTrees){
+      typeTrees.add(this);
+      if (this.typesSupported!=null){
+        for (TypeTree supportedType : this.typesSupported){
+          supportedType.postOrderTraversal(typeTrees);
+        }
+      }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+      TypeTree typeTree = (TypeTree) o;
+      return name != null ? name.equals(typeTree.name) : typeTree.name == null;
+    }
+
+    @Override
+    public int hashCode() {
+      return name != null ? name.hashCode() : 0;
+    }
+
+  }
+
+  /**
+   * This method finds out the field Type that is the most accomodating for a set of fieldTypes.
+   * @param root : Root of the typeTree
+   * @param supportedTypes : Field-Types supported
+   * @return
+   */
+  public static String getMostAccomodatingFieldType(TypeTree root, SupportedTypes supportedTypes){
+    TypeTree[] theLCA = new TypeTree[1];
+    theLCA[0]=null;
+    getLowestCommonAncestor(root, supportedTypes.supportedTypes, theLCA);
+    if(theLCA[0]==null){
+      //todo: Throw something here
+    }
+    return theLCA[0].name;
+  }
+
+  /**
+   * Assigns the LCA to the 0th element in {{theLCA}}
+   * @param thisNode
+   * @param supportedFieldTypes
+   * @param theLCA
+   * @return
+   */
+  private static Set<TypeTree> getLowestCommonAncestor(TypeTree thisNode, Set<String> supportedFieldTypes, TypeTree[] theLCA){
+    if (theLCA[0]!=null){
+      return new HashSet<>();
+    }
+    Set<TypeTree> foundInThisNodeAndBelow = new HashSet<>();
+    if ( supportedFieldTypes.contains(thisNode.name) ){
+      foundInThisNodeAndBelow.add(thisNode);
+    }
+    for(TypeTree supportedType : thisNode.typesSupported) {
+      foundInThisNodeAndBelow.addAll( getLowestCommonAncestor(supportedType, supportedFieldTypes, theLCA) );
+      if (foundInThisNodeAndBelow.size()==supportedFieldTypes.size()){
+        break;
+      }
+    }
+    //Checking here, to cover single-type edge-case
+    if (foundInThisNodeAndBelow.size()==supportedFieldTypes.size()){
+      theLCA[0]=thisNode;
+    }
+    return foundInThisNodeAndBelow;
+  }
+
+  public static class SupportedTypes{
+
+    private SortedSet<String> supportedTypes;
+
+    public SupportedTypes() {
+      supportedTypes = new TreeSet<>();
+    }
+
+    public SupportedTypes(Set<TypeTree> supportedTypes) {
+      this();
+      for(TypeTree supportedType : supportedTypes){
+        this.supportedTypes.add(supportedType.name);
+      }
+    }
+
+    public void addFieldForSupport(String fieldName){
+      supportedTypes.add(fieldName);
+    }
+
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+
+      SupportedTypes that = (SupportedTypes) o;
+
+      return supportedTypes != null ? supportedTypes.equals(that.supportedTypes) : that.supportedTypes == null;
+    }
+
+    @Override
+    public int hashCode() {
+      return supportedTypes != null ? supportedTypes.hashCode() : 0;
+    }
+  }
+
+  public static TypeTree parseTypeTree(NamedList args) {
+    //todo: Parse the xml to form a TypeTree
+    // The xml looks like below:-
+    /*
+  <typeTree fieldName="string">
+    <typeTree fieldName="tdouble">
+        <typeTree fieldName="tlong">
+            <typeTree fieldName="tint"></typeTree>
+        </typeTree>
+    </typeTree>
+    <typeTree fieldName="tdate"></typeTree>
+    <typeTree fieldName="boolean"></typeTree>
+  </typeTree>
+     */
+    return null;
+  }
+
+  /**
+   * This method is going to create a mapping of all the supportedTypes to the most-accomodating FieldType.
+   * This will be a one time effort, so that we do not have to apply the LCA algorithm everytime
+   * one wants the fieldType for a set of supported.
+   * @param typeTreeRoot
+   * @return A Map of the most accomodating type, for every possible combination of fieldTypes.
+   */
+  public static Map<SupportedTypes, String> getMostAccomodatingFieldTypes(TypeTree typeTreeRoot){
+    List<TypeTree> allTypes = typeTreeRoot.getAllTypes();
+    Set<Set<TypeTree>> allCombinationsOfTypes = Sets.powerSet(new HashSet<>(allTypes));
+    Map<SupportedTypes, String> mostAccomodatingFieldTypes = new HashMap<>();
+    for (Set<TypeTree> combination : allCombinationsOfTypes ){
+      SupportedTypes supportedTypes = new SupportedTypes(combination);
+      String mostAccomodatingFieldType = getMostAccomodatingFieldType(typeTreeRoot, supportedTypes);
+      mostAccomodatingFieldTypes.put(supportedTypes, mostAccomodatingFieldType);
+    }
+    return mostAccomodatingFieldTypes;
   }
 
   public static List<TypeMapping> parseTypeMappings(NamedList args) {

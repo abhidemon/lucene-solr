@@ -38,16 +38,18 @@ import org.apache.solr.util.plugin.SolrCoreAware;
 import org.apache.solr.update.processor.FieldMutatingUpdateProcessor.FieldNameSelector;
 
 import org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.TypeMapping;
-import org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.CopyFieldDef;
-import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.DEFAULT_FIELD_TYPE_PARAM;
+
 import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.getDefaultFieldType;
 
 
 import static org.apache.solr.update.processor.AddSchemaFieldsUpdateProcessorFactory.validateSelectorParams;
 import static org.apache.solr.update.processor.FieldMutatingUpdateProcessor.SELECT_ALL_FIELDS;
+import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.getMostAccomodatingFieldTypes;
 import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.getUnknownFields;
 import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.mapValueClassesToFieldType;
 import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.parseTypeMappings;
+import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.parseTypeTree;
+import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.SupportedTypes;
 //return FieldMutatingUpdateProcessor.SELECT_ALL_FIELDS;
 /**
  * Created by abhi on 21/01/18.
@@ -60,6 +62,8 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
   private Collection<FieldMutatingUpdateProcessorFactory.SelectorParams> exclusions = new ArrayList<>();
   private SolrResourceLoader solrResourceLoader = null;
   private String defaultFieldType;
+  SchemaMutatingUpdateRequestProcessorFactory.TypeTree typeTree;
+  Map<SupportedTypes, String> mostAccomodatingFieldTypes;
 
 
   @Override
@@ -87,7 +91,8 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
     }
     defaultFieldType = getDefaultFieldType(args);
     typeMappings = parseTypeMappings(args);
-
+    typeTree = SchemaMutatingUpdateRequestProcessorFactory.parseTypeTree(args);
+    mostAccomodatingFieldTypes = getMostAccomodatingFieldTypes(typeTree);
     super.init(args);
   }
 
