@@ -57,6 +57,8 @@ import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProces
 public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProcessorFactory
     implements SolrCoreAware, UpdateRequestProcessorFactory.RunAlways  {
 
+  public static final String CREATE_TRAININGID_IF_ABSENT = "createTrainingIdIfAbsent";
+
   private List<TypeMapping> typeMappings = Collections.emptyList();
   private FieldMutatingUpdateProcessorFactory.SelectorParams inclusions = new FieldMutatingUpdateProcessorFactory.SelectorParams();
   private Collection<FieldMutatingUpdateProcessorFactory.SelectorParams> exclusions = new ArrayList<>();
@@ -91,8 +93,8 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
     }
     defaultFieldType = getDefaultFieldType(args);
     typeMappings = parseTypeMappings(args);
-    typeTree = SchemaMutatingUpdateRequestProcessorFactory.parseTypeTree(args);
-    mostAccomodatingFieldTypes = getMostAccomodatingFieldTypes(typeTree);
+    //typeTree = SchemaMutatingUpdateRequestProcessorFactory.parseTypeTree(args);
+    //mostAccomodatingFieldTypes = getMostAccomodatingFieldTypes(typeTree);
     super.init(args);
   }
 
@@ -125,15 +127,13 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
               SolrInputField innerInputField = new SolrInputField(inputField.getName());
               innerInputField.setValue(val);
               TypeMapping typeMapping = mapValueClassesToFieldType(Collections.singletonList(innerInputField), typeMappings);
-              if (typeMapping!=null) {
-                MostRelavantFieldTypes.trainSchema(cmd.getReq(), fieldName, typeMapping.fieldTypeName, true);
-              }
+              fieldTypeName = typeMapping==null?defaultFieldType:typeMapping.fieldTypeName;
+              MostRelavantFieldTypes.trainSchema(cmd.getReq(), fieldName, fieldTypeName, true);
             }
           }else{
             TypeMapping typeMapping = mapValueClassesToFieldType(Collections.singletonList(inputField), typeMappings);
-            if (typeMapping!=null) {
-              MostRelavantFieldTypes.trainSchema(cmd.getReq(), fieldName, typeMapping.fieldTypeName, false);
-            }
+            fieldTypeName = typeMapping==null?defaultFieldType:typeMapping.fieldTypeName;
+            MostRelavantFieldTypes.trainSchema(cmd.getReq(), fieldName, fieldTypeName, false);
           }
         }
 
