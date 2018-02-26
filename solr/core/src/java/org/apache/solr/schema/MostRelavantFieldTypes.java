@@ -33,6 +33,8 @@ import org.apache.solr.core.SolrCore;
 import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.response.SolrQueryResponse;
 
+import static org.apache.solr.update.processor.LearnSchemaUpdateRequestProcessorFactory.CREATE_TRAININGID_IF_ABSENT;
+
 /**
  * Created by abhi on 07/01/18.
  */
@@ -157,11 +159,24 @@ public class MostRelavantFieldTypes {
 
   }
 
-  private static String getTrainingIdAndVerify(SolrQueryRequest req){
+  /**
+   * Check if 'trainingId' is present in the request.
+   * If yes, then check if it is valid or not.
+   * If invalid, throw error or insertTheTraining Id based on CREATE_TRAININGID_IF_ABSENT flag.
+   * @param req
+   * @return
+   */
+  private static String verifyAndGetTrainingId(SolrQueryRequest req){
     String trainingId = req.getParams().get(IndexSchema.TRAIN_ID);
-    if ( trainingId==null || !trainedCoreToMostRelevantFieldTypesMapping.containsKey(trainingId) ){
-      String errmsg = trainingId==null?"Param '"+IndexSchema.TRAIN_ID+"' cannot be null!.":"Unknown trainingId:"+trainingId;
-      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST, errmsg);
+    if ( trainingId==null){
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST, "Param '"+IndexSchema.TRAIN_ID+"' cannot be null!.");
+    }
+    if ( !trainedCoreToMostRelevantFieldTypesMapping.containsKey(trainingId) ){
+      if ( req.getParams().getBool(CREATE_TRAININGID_IF_ABSENT, false) ){
+        addTrainingIdIfAbsent(trainingId);
+      }else{
+        throw new SolrException(SolrException.ErrorCode.BAD_REQUEST, "Unknown trainingId:"+trainingId);
+      }
     }
     return trainingId;
   }
@@ -173,7 +188,7 @@ public class MostRelavantFieldTypes {
    * @param fieldTypeName
    */
   public static void trainSchema(SolrQueryRequest req, String fieldName, String fieldTypeName, boolean multiValued){
-    String trainingId = getTrainingIdAndVerify(req);
+    String trainingId = verifyAndGetTrainingId(req);
     trainedCoreToMostRelevantFieldTypesMapping.get( trainingId )
         .addAllowedFieldType( fieldName, fieldTypeName , multiValued);
   }
@@ -225,7 +240,7 @@ public class MostRelavantFieldTypes {
   }
 
   public static void getTrainedSchema(SolrQueryRequest req, SolrQueryResponse rsp){
-    String trainingId = getTrainingIdAndVerify(req);
+    String trainingId = verifyAndGetTrainingId(req);
     MostRelavantFieldTypes mostRelavantFieldTypes = trainedCoreToMostRelevantFieldTypesMapping.get(trainingId);
     rsp.add(IndexSchema.SCHEMA, mostRelavantFieldTypes.convertTrainingMetaDataToSchemaFormat());
     try{
@@ -248,10 +263,15 @@ public class MostRelavantFieldTypes {
     return mostRelavantFieldTypes.getMostRelevantFieldTypes();
   }
 
+  public static void addTrainingIdIfAbsent(String trainingId){
+    trainedCoreToMostRelevantFieldTypesMapping.putIfAbsent(trainingId, new MostRelavantFieldTypes());
+  }
+
   public static String generateTrainingId(SolrCore core){
-    String trainingID = UUID.randomUUID().toString();
     MostRelavantFieldTypes existingValue = null;
+    String trainingID;
     do{
+      trainingID = UUID.randomUUID().toString();
       existingValue = trainedCoreToMostRelevantFieldTypesMapping.putIfAbsent(trainingID, new MostRelavantFieldTypes());
     }while (existingValue!=null);
     return trainingID;
