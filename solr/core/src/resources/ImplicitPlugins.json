@@ -32,6 +32,13 @@
         "update.contentType": "application/json"
       }
     },
+    "/schema/train/count": {
+      "useParams":"_SCHEMA_TRAIN_JSON",
+      "class": "solr.SchemaHandler",
+      "invariants": {
+        "update.contentType": "application/json"
+      }
+    },
     "/update/csv": {
       "useParams":"_UPDATE_CSV",
       "class": "solr.UpdateRequestHandler",

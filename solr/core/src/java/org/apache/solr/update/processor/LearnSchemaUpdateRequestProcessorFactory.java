@@ -24,7 +24,9 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
+import org.apache.solr.common.SolrException;
 import org.apache.solr.common.SolrInputDocument;
 import org.apache.solr.common.SolrInputField;
 import org.apache.solr.common.util.NamedList;
@@ -113,6 +115,7 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
       Map<String,List<SolrInputField>> unknownFields = new HashMap<>();
       FieldNameSelector selector = SELECT_ALL_FIELDS;
       getUnknownFields(selector, doc, unknownFields);
+      String trainingId = null;
 
       for (final Map.Entry<String,List<SolrInputField>> entry : unknownFields.entrySet()) {
         String fieldName = entry.getKey();
@@ -128,13 +131,24 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
               innerInputField.setValue(val);
               TypeMapping typeMapping = mapValueClassesToFieldType(Collections.singletonList(innerInputField), typeMappings);
               fieldTypeName = typeMapping==null?defaultFieldType:typeMapping.fieldTypeName;
-              MostRelavantFieldTypes.trainSchema(cmd.getReq(), fieldName, fieldTypeName, true);
+              trainingId = MostRelavantFieldTypes.trainSchema(cmd.getReq(), fieldName, fieldTypeName, true);
             }
           }else{
             TypeMapping typeMapping = mapValueClassesToFieldType(Collections.singletonList(inputField), typeMappings);
             fieldTypeName = typeMapping==null?defaultFieldType:typeMapping.fieldTypeName;
-            MostRelavantFieldTypes.trainSchema(cmd.getReq(), fieldName, fieldTypeName, false);
+            trainingId = MostRelavantFieldTypes.trainSchema(cmd.getReq(), fieldName, fieldTypeName, false);
           }
+        }
+        String uniqueIdField = cmd.getReq().getParams().get("uniqueIdField");
+
+        if(uniqueIdField!=null){
+          SolrInputField valueAtUniqueID = doc.get(uniqueIdField);
+          if(valueAtUniqueID==null){
+            throw new SolrException(SolrException.ErrorCode.BAD_REQUEST, "No value found in the doc for 'uniqueIdField' :"+uniqueIdField);
+          }
+          //The below line should not give NPE. If it does, that means {{trainingIdToUniqueIdsEncountered}}
+          // has not been initialised properly.
+          MostRelavantFieldTypes.trainingIdToUniqueIdsEncountered.get(trainingId).add(valueAtUniqueID.getValue());
         }
 
       }

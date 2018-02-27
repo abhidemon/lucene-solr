@@ -121,6 +121,10 @@ public class SchemaHandler extends RequestHandlerBase implements SolrCoreAware, 
         case "/schema/train/yield":
           MostRelavantFieldTypes.getTrainedSchema(req, rsp);
           break;
+        case "/schema/train/count":
+          MostRelavantFieldTypes.getUniqueIdCounts(req, rsp);
+          break;
+
         case "/schema/version":
           rsp.add(IndexSchema.VERSION, req.getSchema().getVersion());
           break;

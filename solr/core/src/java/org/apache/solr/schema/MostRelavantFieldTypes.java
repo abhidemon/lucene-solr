@@ -20,9 +20,12 @@ package org.apache.solr.schema;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -46,6 +49,8 @@ public class MostRelavantFieldTypes {
   static final BitSet _boolean = BitSet.valueOf(new byte[]{2});
   static final BitSet _date = BitSet.valueOf(new byte[]{1});
   static final Map<String, MostRelavantFieldTypes> trainedCoreToMostRelevantFieldTypesMapping = new ConcurrentHashMap<>();
+
+  public static final Map<String, Set<Object>> trainingIdToUniqueIdsEncountered = new ConcurrentHashMap<>();
 
   private final Map<String, Map<String, AtomicLong>> fieldNameWiseStatsMapping = new ConcurrentHashMap<>();
   private final Map<String, BitSetReprForFieldType> fieldNameToFieldTypesMapping = new ConcurrentHashMap<>();
@@ -188,10 +193,11 @@ public class MostRelavantFieldTypes {
    * @param fieldName
    * @param fieldTypeName
    */
-  public static void trainSchema(SolrQueryRequest req, String fieldName, String fieldTypeName, boolean multiValued){
+  public static String trainSchema(SolrQueryRequest req, String fieldName, String fieldTypeName, boolean multiValued){
     String trainingId = verifyAndGetTrainingId(req);
     trainedCoreToMostRelevantFieldTypesMapping.get( trainingId )
         .addAllowedFieldType( fieldName, fieldTypeName , multiValued);
+    return trainingId;
   }
 
   private Map<String, Object> getFieldWiseStats(){
@@ -240,6 +246,18 @@ public class MostRelavantFieldTypes {
     return addSchemaData;
   }
 
+  public static void getUniqueIdCounts(SolrQueryRequest req, SolrQueryResponse rsp){
+    String trainingId = verifyAndGetTrainingId(req);
+    int totCount = 0;
+    List<String> errors = new LinkedList<>();
+    Set<Object> dd = trainingIdToUniqueIdsEncountered.get(trainingId);
+    if (dd!=null)
+      totCount = dd.size();
+    else
+      errors.add("No counters found for trainingID:"+trainingId);
+    rsp.add("count", totCount);
+    rsp.add("errors",errors);
+  }
   public static void getTrainedSchema(SolrQueryRequest req, SolrQueryResponse rsp){
     String trainingId = verifyAndGetTrainingId(req);
     MostRelavantFieldTypes mostRelavantFieldTypes = trainedCoreToMostRelevantFieldTypesMapping.get(trainingId);
@@ -265,16 +283,22 @@ public class MostRelavantFieldTypes {
   }
 
   public static void addTrainingIdIfAbsent(String trainingId){
-    trainedCoreToMostRelevantFieldTypesMapping.putIfAbsent(trainingId, new MostRelavantFieldTypes());
+    MostRelavantFieldTypes prevVal = trainedCoreToMostRelevantFieldTypesMapping.putIfAbsent(trainingId, new MostRelavantFieldTypes());
+    if(prevVal==null){
+      //ie. this one was actually the first entry.
+      MostRelavantFieldTypes.trainingIdToUniqueIdsEncountered.putIfAbsent(trainingId, new HashSet<>());
+    }
   }
 
   public static String generateTrainingId(SolrCore core){
     MostRelavantFieldTypes existingValue = null;
     String trainingID;
+    //Try to create a uniqueTraining id and insert into the map.
     do{
       trainingID = UUID.randomUUID().toString();
       existingValue = trainedCoreToMostRelevantFieldTypesMapping.putIfAbsent(trainingID, new MostRelavantFieldTypes());
     }while (existingValue!=null);
+    MostRelavantFieldTypes.trainingIdToUniqueIdsEncountered.putIfAbsent(trainingID, new HashSet<>());
     return trainingID;
   }
 
