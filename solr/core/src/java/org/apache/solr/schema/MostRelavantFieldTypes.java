@@ -67,10 +67,11 @@ public class MostRelavantFieldTypes {
       case "double"        : return new BitSetReprForFieldType((BitSet)_double.clone(), isMultiValued );
 
       case "pdates"        :
+      case "tdate"        :
       case "date"          : return new BitSetReprForFieldType((BitSet)_date.clone(), isMultiValued );
 
       case "booleans"      :
-      case "boolean"       : return new BitSetReprForFieldType((BitSet)_double.clone(), isMultiValued );
+      case "boolean"       : return new BitSetReprForFieldType((BitSet)_boolean.clone(), isMultiValued );
       default : throw new RuntimeException("No BitSetMapping found for FieldType : "+fieldTypeName);
     }
   }
