@@ -18,6 +18,7 @@
 package org.apache.solr.update.processor;
 
 import java.io.IOException;
+import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -40,6 +41,8 @@ import org.apache.solr.util.plugin.SolrCoreAware;
 import org.apache.solr.update.processor.FieldMutatingUpdateProcessor.FieldNameSelector;
 
 import org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.TypeMapping;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.getDefaultFieldType;
 
@@ -58,6 +61,8 @@ import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProces
  */
 public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProcessorFactory
     implements SolrCoreAware, UpdateRequestProcessorFactory.RunAlways  {
+
+  private static final Logger log = LoggerFactory.getLogger(LearnSchemaUpdateRequestProcessorFactory.class);
 
   public static final String CREATE_TRAININGID_IF_ABSENT = "createTrainingIdIfAbsent";
 
@@ -123,18 +128,31 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
         List<SolrInputField> inputFields = entry.getValue();
 
         for (SolrInputField inputField : inputFields){
-
           if (inputField.getValue() instanceof  List){
             // Can be a candidate of MultiValued FieldType
             for (Object val : (List)inputField.getValue()){
               SolrInputField innerInputField = new SolrInputField(inputField.getName());
               innerInputField.setValue(val);
-              TypeMapping typeMapping = mapValueClassesToFieldType(Collections.singletonList(innerInputField), typeMappings);
+              TypeMapping typeMapping;
+              try{
+                typeMapping = mapValueClassesToFieldType(Collections.singletonList(innerInputField), typeMappings);
+              }catch (NullPointerException e){
+                log.error("Field :"+inputField.getName()+" in productId: "+doc.get("id")+" has null values. Training ID: "+trainingId);
+                //throw e;
+                continue;
+              }
               fieldTypeName = typeMapping==null?defaultFieldType:typeMapping.fieldTypeName;
               trainingId = MostRelavantFieldTypes.trainSchema(cmd.getReq(), fieldName, fieldTypeName, true);
             }
           }else{
-            TypeMapping typeMapping = mapValueClassesToFieldType(Collections.singletonList(inputField), typeMappings);
+            TypeMapping typeMapping=null;
+            try{
+              typeMapping = mapValueClassesToFieldType(Collections.singletonList(inputField), typeMappings);
+            }catch (NullPointerException e){
+              log.error("Field :"+inputField.getName()+" in productId: "+doc.get("id")+" has null values. Training ID: "+trainingId);
+              //throw e;
+              continue;
+            }
             fieldTypeName = typeMapping==null?defaultFieldType:typeMapping.fieldTypeName;
             trainingId = MostRelavantFieldTypes.trainSchema(cmd.getReq(), fieldName, fieldTypeName, false);
           }
