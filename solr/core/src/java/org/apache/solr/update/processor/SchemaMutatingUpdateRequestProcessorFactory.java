@@ -53,7 +53,23 @@ public class SchemaMutatingUpdateRequestProcessorFactory  {
   private static final String DEST_PARAM = "dest";
   private static final String MAX_CHARS_PARAM = "maxChars";
   private static final String IS_DEFAULT_PARAM = "default";
+
+  private static final String REGEX_MAPPING_PARAM = "regexMapping";
+  private static final String REGEX_PATTERN_PARAM = "regexPattern";
+
+
+
   private static final String TYPE_TREE_PARAM = "typeTree";
+
+  public static class RegexMapping{
+    public String fieldTypeName;
+    public Collection<String> regexExpressions;
+
+    public RegexMapping(String fieldTypeName, Collection<String> regexExpressions) {
+      this.fieldTypeName = fieldTypeName;
+      this.regexExpressions = regexExpressions;
+    }
+  }
 
   public static class TypeMapping {
     public String fieldTypeName;
@@ -193,11 +209,17 @@ public class SchemaMutatingUpdateRequestProcessorFactory  {
    * This class is going to represent a type in the Type-Tree.
    * Every Node contains the list of types it can support, and also keeps a reference to it's parent.
    */
-  public class TypeTree{
+  public static class TypeTree{
     String name;
     TypeTree parentType;
     List<TypeTree> typesSupported;
     Integer level;
+
+    public TypeTree(String name, int level){
+      this.name = name;
+      this.level = level;
+      typesSupported = new ArrayList<>();
+    }
 
     public List<TypeTree> getAllTypes(){
       List<TypeTree> typeTreeList = new LinkedList<>();
@@ -267,7 +289,7 @@ public class SchemaMutatingUpdateRequestProcessorFactory  {
       }
     }
     //Checking here, to cover single-type edge-case
-    if (foundInThisNodeAndBelow.size()==supportedFieldTypes.size()){
+    if (foundInThisNodeAndBelow.size()==supportedFieldTypes.size() && theLCA[0]==null){
       theLCA[0]=thisNode;
     }
     return foundInThisNodeAndBelow;
@@ -276,22 +298,31 @@ public class SchemaMutatingUpdateRequestProcessorFactory  {
   public static class SupportedTypes{
 
     private SortedSet<String> supportedTypes;
+    boolean isMultiValued;
+    private Map<SupportedTypes, String> mostAccomodatingFieldTypes;
 
-    public SupportedTypes() {
+    public SupportedTypes(Map<SupportedTypes, String> mostAccomodatingFieldTypes) {
       supportedTypes = new TreeSet<>();
+      isMultiValued = false;
+      this.mostAccomodatingFieldTypes = mostAccomodatingFieldTypes;
     }
 
-    public SupportedTypes(Set<TypeTree> supportedTypes) {
-      this();
+    public SupportedTypes(Set<TypeTree> supportedTypes, boolean isMultiValued ,Map<SupportedTypes, String> mostAccomodatingFieldTypes) {
+      this(mostAccomodatingFieldTypes);
       for(TypeTree supportedType : supportedTypes){
         this.supportedTypes.add(supportedType.name);
       }
+      this.isMultiValued = isMultiValued;
     }
 
-    public void addFieldForSupport(String fieldName){
+    public synchronized void addFieldForSupport(String fieldName, boolean isMultiValued){
       supportedTypes.add(fieldName);
+      this.isMultiValued = this.isMultiValued | isMultiValued;
     }
 
+    public boolean isMultiValued() {
+      return isMultiValued;
+    }
 
     @Override
     public boolean equals(Object o) {
@@ -306,6 +337,10 @@ public class SchemaMutatingUpdateRequestProcessorFactory  {
     @Override
     public int hashCode() {
       return supportedTypes != null ? supportedTypes.hashCode() : 0;
+    }
+
+    public String getMostRelevantFieldTypes() {
+      return mostAccomodatingFieldTypes.get(this);
     }
   }
 
@@ -323,7 +358,23 @@ public class SchemaMutatingUpdateRequestProcessorFactory  {
     <typeTree fieldName="boolean"></typeTree>
   </typeTree>
      */
-    return null;
+    if (args==null) return null;
+    NamedList typeTree = (NamedList) args.get("typeTree");
+    Map typeTreeMap = ((NamedList) args.get("typeTree")).asMap(30);
+    String rootName = (String) typeTreeMap.keySet().iterator().next();
+    TypeTree rootNode = new TypeTree(rootName, 0);
+    copy((Map)typeTreeMap.get(rootName), rootNode);
+    return rootNode;
+  }
+
+  public static void copy(Map typeTreeMap, TypeTree parentNode){
+
+    for (Object key : typeTreeMap.keySet()) {
+      String keystr = (String) key;
+      TypeTree  typeTree = new TypeTree(keystr, parentNode.level+1);
+      parentNode.typesSupported.add(typeTree);
+      copy((Map)typeTreeMap.get(key), typeTree);
+    }
   }
 
   /**
@@ -338,11 +389,52 @@ public class SchemaMutatingUpdateRequestProcessorFactory  {
     Set<Set<TypeTree>> allCombinationsOfTypes = Sets.powerSet(new HashSet<>(allTypes));
     Map<SupportedTypes, String> mostAccomodatingFieldTypes = new HashMap<>();
     for (Set<TypeTree> combination : allCombinationsOfTypes ){
-      SupportedTypes supportedTypes = new SupportedTypes(combination);
+      SupportedTypes supportedTypes = new SupportedTypes(combination, false,null);
       String mostAccomodatingFieldType = getMostAccomodatingFieldType(typeTreeRoot, supportedTypes);
       mostAccomodatingFieldTypes.put(supportedTypes, mostAccomodatingFieldType);
     }
     return mostAccomodatingFieldTypes;
+  }
+
+  public static List<RegexMapping> parseRegexMappings(NamedList args){
+    List<RegexMapping> regexMappings = new ArrayList<>();
+
+    List<Object> regexMappingsParams = args.getAll(REGEX_MAPPING_PARAM);
+    for (Object typeMappingObj : regexMappingsParams){
+      if (null == typeMappingObj) {
+        throw new SolrException(SERVER_ERROR, "'" + REGEX_MAPPING_PARAM + "' init param cannot be null");
+      }
+      if ( ! (typeMappingObj instanceof NamedList) ) {
+        throw new SolrException(SERVER_ERROR, "'" + REGEX_MAPPING_PARAM + "' init param must be a <lst>");
+      }
+      NamedList typeMappingNamedList = (NamedList)typeMappingObj;
+      Object fieldTypeObj = typeMappingNamedList.remove(FIELD_TYPE_PARAM);
+      if (null == fieldTypeObj) {
+        throw new SolrException(SERVER_ERROR,
+            "Each '" + REGEX_MAPPING_PARAM + "' <lst/> must contain a '" + FIELD_TYPE_PARAM + "' <str>");
+      }
+      if ( ! (fieldTypeObj instanceof CharSequence)) {
+        throw new SolrException(SERVER_ERROR, "'" + FIELD_TYPE_PARAM + "' init param must be a <str>");
+      }
+      String fieldType = fieldTypeObj.toString();
+
+/*      Object regexPatternObj = typeMappingNamedList.remove(REGEX_PATTERN_PARAM);
+      if (null == regexPatternObj) {
+        throw new SolrException(SERVER_ERROR,
+            "Each '" + REGEX_MAPPING_PARAM + "' <lst/> must contain a '" + REGEX_PATTERN_PARAM + "' <str>");
+      }
+      if ( ! (regexPatternObj instanceof CharSequence)) {
+        throw new SolrException(SERVER_ERROR, "'" + REGEX_PATTERN_PARAM + "' init param must be a <str>");
+      }*/
+      Collection<String> regexPatterns
+          = typeMappingNamedList.removeConfigArgs(REGEX_PATTERN_PARAM);
+      if (regexPatterns ==null || regexPatterns.isEmpty()) {
+        throw new SolrException(SERVER_ERROR,
+            "Each '" + REGEX_MAPPING_PARAM + "' <lst/> must contain at least one '" + REGEX_PATTERN_PARAM + "' <str>");
+      }
+      regexMappings.add(new RegexMapping(fieldType, regexPatterns));
+    }
+    return regexMappings;
   }
 
   public static List<TypeMapping> parseTypeMappings(NamedList args) {
