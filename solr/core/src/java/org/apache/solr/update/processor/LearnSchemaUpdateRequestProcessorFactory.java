@@ -25,7 +25,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.SolrInputDocument;
@@ -35,7 +34,7 @@ import org.apache.solr.core.SolrCore;
 import org.apache.solr.core.SolrResourceLoader;
 import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.response.SolrQueryResponse;
-import org.apache.solr.schema.MostRelavantFieldTypes;
+import org.apache.solr.schema.TrainedFieldType;
 import org.apache.solr.update.AddUpdateCommand;
 import org.apache.solr.util.plugin.SolrCoreAware;
 import org.apache.solr.update.processor.FieldMutatingUpdateProcessor.FieldNameSelector;
@@ -49,9 +48,8 @@ import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProces
 
 import static org.apache.solr.update.processor.AddSchemaFieldsUpdateProcessorFactory.validateSelectorParams;
 import static org.apache.solr.update.processor.FieldMutatingUpdateProcessor.SELECT_ALL_FIELDS;
-import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.getMostAccomodatingFieldTypes;
 import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.getUnknownFields;
-import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.mapValueClassesToFieldType;
+import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.parseRegexMappings;
 import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.parseTypeMappings;
 import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.parseTypeTree;
 import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.SupportedTypes;
@@ -67,13 +65,13 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
   public static final String CREATE_TRAININGID_IF_ABSENT = "createTrainingIdIfAbsent";
 
   private List<TypeMapping> typeMappings = Collections.emptyList();
+  private List<SchemaMutatingUpdateRequestProcessorFactory.RegexMapping> regexMappings = Collections.emptyList();
   private FieldMutatingUpdateProcessorFactory.SelectorParams inclusions = new FieldMutatingUpdateProcessorFactory.SelectorParams();
   private Collection<FieldMutatingUpdateProcessorFactory.SelectorParams> exclusions = new ArrayList<>();
   private SolrResourceLoader solrResourceLoader = null;
   private String defaultFieldType;
-  SchemaMutatingUpdateRequestProcessorFactory.TypeTree typeTree;
-  Map<SupportedTypes, String> mostAccomodatingFieldTypes;
-
+  private SchemaMutatingUpdateRequestProcessorFactory.TypeTree typeTree;
+  private Map<SupportedTypes, String> mostAccomodatingFieldTypes;
 
   @Override
   public void inform(SolrCore core) {
@@ -86,7 +84,7 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
 
   @Override
   public UpdateRequestProcessor getInstance(SolrQueryRequest req, SolrQueryResponse rsp, UpdateRequestProcessor next) {
-    return new LearnSchemaUpdateRequestProcessor(next);
+    return new LearnSchemaUpdateRequestProcessor(this, next);
   }
 
   @Override
@@ -100,15 +98,43 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
     }
     defaultFieldType = getDefaultFieldType(args);
     typeMappings = parseTypeMappings(args);
-    //typeTree = SchemaMutatingUpdateRequestProcessorFactory.parseTypeTree(args);
-    //mostAccomodatingFieldTypes = getMostAccomodatingFieldTypes(typeTree);
+    regexMappings = parseRegexMappings(args);
+    typeTree = SchemaMutatingUpdateRequestProcessorFactory.parseTypeTree(args);
+    mostAccomodatingFieldTypes = SchemaMutatingUpdateRequestProcessorFactory.getMostAccomodatingFieldTypes(typeTree);
     super.init(args);
   }
 
   private class LearnSchemaUpdateRequestProcessor extends UpdateRequestProcessor {
 
-    public LearnSchemaUpdateRequestProcessor(UpdateRequestProcessor next) {
+    //A back reference for getting details of the factory
+    LearnSchemaUpdateRequestProcessorFactory learnSchemaUpdateRequestProcessorFactory;
+
+    public LearnSchemaUpdateRequestProcessor(LearnSchemaUpdateRequestProcessorFactory learnSchemaUpdateRequestProcessorFactory, UpdateRequestProcessor next) {
       super(next);
+      this.learnSchemaUpdateRequestProcessorFactory = learnSchemaUpdateRequestProcessorFactory;
+    }
+
+    private String mapValueClassesToFieldType(List<SolrInputField> fields){
+      TypeMapping typeMapping = SchemaMutatingUpdateRequestProcessorFactory.mapValueClassesToFieldType(fields, typeMappings);
+      if (typeMapping==null){
+        SolrInputField field;
+        if (fields.size()==1 && (field = fields.get(0)) !=null && field.getValue()!=null && regexMappings.size()>0 ){
+          String val = field.getValue().toString();
+
+
+          for (SchemaMutatingUpdateRequestProcessorFactory.RegexMapping regexMapping: regexMappings){
+
+            for (String regexpression : regexMapping.regexExpressions) {
+              if ( val.matches(regexpression) ){
+                return regexMapping.fieldTypeName;
+              }
+            }
+
+          }
+
+        }
+      }
+      return typeMapping==null? null:typeMapping.fieldTypeName;
     }
 
     @Override
@@ -133,28 +159,26 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
             for (Object val : (List)inputField.getValue()){
               SolrInputField innerInputField = new SolrInputField(inputField.getName());
               innerInputField.setValue(val);
-              TypeMapping typeMapping;
               try{
-                typeMapping = mapValueClassesToFieldType(Collections.singletonList(innerInputField), typeMappings);
+                fieldTypeName = mapValueClassesToFieldType(Collections.singletonList(innerInputField));
               }catch (NullPointerException e){
                 log.error("Field :"+inputField.getName()+" in productId: "+doc.get("id")+" has null values. Training ID: "+trainingId);
                 //throw e;
                 continue;
               }
-              fieldTypeName = typeMapping==null?defaultFieldType:typeMapping.fieldTypeName;
-              trainingId = MostRelavantFieldTypes.trainSchema(cmd.getReq(), fieldName, fieldTypeName, true);
+              fieldTypeName = fieldTypeName==null?defaultFieldType:fieldTypeName;
+              trainingId = TrainedFieldType.trainSchema(cmd.getReq(), fieldName, fieldTypeName, true, learnSchemaUpdateRequestProcessorFactory);
             }
           }else{
-            TypeMapping typeMapping=null;
             try{
-              typeMapping = mapValueClassesToFieldType(Collections.singletonList(inputField), typeMappings);
+              fieldTypeName = mapValueClassesToFieldType(Collections.singletonList(inputField));
             }catch (NullPointerException e){
               log.error("Field :"+inputField.getName()+" in productId: "+doc.get("id")+" has null values. Training ID: "+trainingId);
               //throw e;
               continue;
             }
-            fieldTypeName = typeMapping==null?defaultFieldType:typeMapping.fieldTypeName;
-            trainingId = MostRelavantFieldTypes.trainSchema(cmd.getReq(), fieldName, fieldTypeName, false);
+            fieldTypeName = fieldTypeName==null?defaultFieldType:fieldTypeName;
+            trainingId = TrainedFieldType.trainSchema(cmd.getReq(), fieldName, fieldTypeName, false, learnSchemaUpdateRequestProcessorFactory);
           }
         }
         String uniqueIdField = cmd.getReq().getParams().get("uniqueIdField");
@@ -166,7 +190,7 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
           }
           //The below line should not give NPE. If it does, that means {{trainingIdToUniqueIdsEncountered}}
           // has not been initialised properly.
-          MostRelavantFieldTypes.trainingIdToUniqueIdsEncountered.get(trainingId).add(valueAtUniqueID.getValue());
+          TrainedFieldType.trainingIdToUniqueIdsEncountered.get(trainingId).add(valueAtUniqueID.getValue());
         }
 
       }
@@ -174,4 +198,7 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
     }
   }
 
+  public Map<SupportedTypes, String> getMostAccomodatingFieldTypes() {
+    return mostAccomodatingFieldTypes;
+  }
 }

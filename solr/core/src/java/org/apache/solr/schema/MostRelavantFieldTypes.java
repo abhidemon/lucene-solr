@@ -247,7 +247,8 @@ public class MostRelavantFieldTypes {
   }
 
   public static void getUniqueIdCounts(SolrQueryRequest req, SolrQueryResponse rsp){
-    String trainingId = verifyAndGetTrainingId(req);
+    TrainedFieldType.getUniqueIdCounts(req, rsp);
+    /*String trainingId = verifyAndGetTrainingId(req);
     int totCount = 0;
     List<String> errors = new LinkedList<>();
     Set<Object> dd = trainingIdToUniqueIdsEncountered.get(trainingId);
@@ -256,10 +257,11 @@ public class MostRelavantFieldTypes {
     else
       errors.add("No counters found for trainingID:"+trainingId);
     rsp.add("count", totCount);
-    rsp.add("errors",errors);
+    rsp.add("errors",errors);*/
   }
   public static void getTrainedSchema(SolrQueryRequest req, SolrQueryResponse rsp){
-    String trainingId = verifyAndGetTrainingId(req);
+    TrainedFieldType.getTrainedSchema(req, rsp);
+    /*String trainingId = verifyAndGetTrainingId(req);
     MostRelavantFieldTypes mostRelavantFieldTypes = trainedCoreToMostRelevantFieldTypesMapping.get(trainingId);
     rsp.add(IndexSchema.SCHEMA, mostRelavantFieldTypes.convertTrainingMetaDataToSchemaFormat());
     try{
@@ -269,7 +271,7 @@ public class MostRelavantFieldTypes {
     }catch (Exception e){
       e.printStackTrace();
     }
-
+*/
   }
 
   /**
