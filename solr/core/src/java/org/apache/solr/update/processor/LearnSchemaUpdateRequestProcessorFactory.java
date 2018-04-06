@@ -115,25 +115,21 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
     }
 
     private String mapValueClassesToFieldType(List<SolrInputField> fields){
-      TypeMapping typeMapping = SchemaMutatingUpdateRequestProcessorFactory.mapValueClassesToFieldType(fields, typeMappings);
-      if (typeMapping==null){
-        SolrInputField field;
-        if (fields.size()==1 && (field = fields.get(0)) !=null && field.getValue()!=null && regexMappings.size()>0 ){
-          String val = field.getValue().toString();
+      SolrInputField field;
+      if (fields.size()==1 && (field = fields.get(0)) !=null && field.getValue()!=null && regexMappings.size()>0 ){
+        String val = field.getValue().toString();
 
+        for (SchemaMutatingUpdateRequestProcessorFactory.RegexMapping regexMapping: regexMappings){
 
-          for (SchemaMutatingUpdateRequestProcessorFactory.RegexMapping regexMapping: regexMappings){
-
-            for (String regexpression : regexMapping.regexExpressions) {
-              if ( val.matches(regexpression) ){
-                return regexMapping.fieldTypeName;
-              }
+          for (String regexpression : regexMapping.regexExpressions) {
+            if ( val.matches(regexpression) ){
+              return regexMapping.fieldTypeName;
             }
-
           }
 
         }
       }
+      TypeMapping typeMapping = SchemaMutatingUpdateRequestProcessorFactory.mapValueClassesToFieldType(fields, typeMappings);
       return typeMapping==null? null:typeMapping.fieldTypeName;
     }
 
