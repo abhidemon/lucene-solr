@@ -225,15 +225,46 @@
         <str name="fieldType">pdoubles</str>
       </lst>
 
+      <!--
+<lst name="regexMapping">
+  <str name="regexPattern">\b(https?|ftp|file)://[-a-zA-Z0-9+&@#/%?=~_|!:,.;]*[-a-zA-Z0-9+&@#/%=~_|]</str>
+  <str name="fieldType">link</str>
+</lst>
+-->
+      <lst name="regexMapping">
+        <str name="regexPattern">([^\s]+(\.(?i)(jpg|png|gif|bmp))$)</str>
+        <str name="fieldType">image</str>
+      </lst>
+      <lst name="regexMapping">
+        <str name="regexPattern">(null)</str>
+        <str name="fieldType">null</str>
+      </lst>
+
       <lst name="typeTree">
         <lst name="string">
-          <lst name="pdouble">
-            <lst name="plong">
-              <lst name="pint"> </lst>
+          <lst name="tdouble">
+            <lst name="tlong">
+              <lst name="tint">
+                <lst name="null"> </lst>
+              </lst>
             </lst>
           </lst>
-          <lst name="pdate"> </lst>
-          <lst name="boolean"> </lst>
+
+          <lst name="pdate">
+            <lst name="null"> </lst>
+          </lst>
+          <lst name="tdate">
+            <lst name="null"> </lst>
+          </lst>
+          <lst name="link">
+            <lst name="null"> </lst>
+          </lst>
+          <lst name="image">
+            <lst name="null"> </lst>
+          </lst>
+          <lst name="boolean">
+            <lst name="null"> </lst>
+          </lst>
         </lst>
       </lst>
 
