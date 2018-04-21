@@ -113,9 +113,6 @@ public class TrainedFieldType {
 
   /**
    * Add the new fieldTypeName for the fieldName, to be decided the best fieldTypeName for this field.
-   * @param req
-   * @param fieldName
-   * @param fieldTypeName
    */
   public static String trainSchema(SolrQueryRequest req, String fieldName, String fieldTypeName, boolean multiValued, LearnSchemaUpdateRequestProcessorFactory lsURSP){
     String trainingId = verifyAndGetTrainingId(req);
@@ -198,8 +195,8 @@ public class TrainedFieldType {
 
   /**
    * Will return map with FieldName : MostSuitableFieldName.
-   * @param trainingId
-   * @return
+   * trainingId
+   *
    */
   public Map<String, String> getTrainedSchema(String trainingId){
     TrainedFieldType mostRelavantFieldTypes = trainedCoreToMostRelevantFieldTypesMapping.get(trainingId);

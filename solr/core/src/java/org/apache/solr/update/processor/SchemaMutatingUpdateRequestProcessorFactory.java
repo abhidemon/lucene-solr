@@ -174,7 +174,7 @@ public class SchemaMutatingUpdateRequestProcessorFactory  {
   /**
    * Maps all given field values' classes to a typeMapping object
    *
-   * @param fields one or more (same-named) field values from one or more documents
+   * fields one or more (same-named) field values from one or more documents
    */
   public static TypeMapping mapValueClassesToFieldType(List<SolrInputField> fields, List<TypeMapping> typeMappings) {
     NEXT_TYPE_MAPPING: for (TypeMapping typeMapping : typeMappings) {
@@ -253,9 +253,9 @@ public class SchemaMutatingUpdateRequestProcessorFactory  {
 
   /**
    * This method finds out the field Type that is the most accomodating for a set of fieldTypes.
-   * @param root : Root of the typeTree
-   * @param supportedTypes : Field-Types supported
-   * @return
+   * root : Root of the typeTree
+   * supportedTypes : Field-Types supported
+   * 
    */
   public static String getMostAccomodatingFieldType(TypeTree root, SupportedTypes supportedTypes){
     TypeTree[] theLCA = new TypeTree[1];
@@ -269,10 +269,10 @@ public class SchemaMutatingUpdateRequestProcessorFactory  {
 
   /**
    * Assigns the LCA to the 0th element in {{theLCA}}
-   * @param thisNode
-   * @param supportedFieldTypes
-   * @param theLCA
-   * @return
+   * thisNode
+   * supportedFieldTypes
+   * theLCA
+   * 
    */
   private static Set<TypeTree> getLowestCommonAncestor(TypeTree thisNode, Set<String> supportedFieldTypes, TypeTree[] theLCA){
     if (theLCA[0]!=null){
@@ -381,8 +381,7 @@ public class SchemaMutatingUpdateRequestProcessorFactory  {
    * This method is going to create a mapping of all the supportedTypes to the most-accomodating FieldType.
    * This will be a one time effort, so that we do not have to apply the LCA algorithm everytime
    * one wants the fieldType for a set of supported.
-   * @param typeTreeRoot
-   * @return A Map of the most accomodating type, for every possible combination of fieldTypes.
+   * returns A Map of the most accomodating type, for every possible combination of fieldTypes.
    */
   public static Map<SupportedTypes, String> getMostAccomodatingFieldTypes(TypeTree typeTreeRoot){
     List<TypeTree> allTypes = typeTreeRoot.getAllTypes();
