@@ -18,7 +18,6 @@
 package org.apache.solr.update.processor;
 
 import java.io.IOException;
-import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -51,9 +50,8 @@ import static org.apache.solr.update.processor.FieldMutatingUpdateProcessor.SELE
 import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.getUnknownFields;
 import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.parseRegexMappings;
 import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.parseTypeMappings;
-import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.parseTypeTree;
 import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.SupportedTypes;
-//return FieldMutatingUpdateProcessor.SELECT_ALL_FIELDS;
+
 /**
  * Created by abhi on 21/01/18.
  */
