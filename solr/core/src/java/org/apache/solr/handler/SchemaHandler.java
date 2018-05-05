@@ -42,6 +42,7 @@ import org.apache.solr.response.SolrQueryResponse;
 import org.apache.solr.schema.IndexSchema;
 import org.apache.solr.schema.ManagedIndexSchema;
 import org.apache.solr.schema.SchemaManager;
+import org.apache.solr.schema.TrainedFieldType;
 import org.apache.solr.schema.ZkIndexSchemaReader;
 import org.apache.solr.security.AuthorizationContext;
 import org.apache.solr.security.PermissionNameProvider;
@@ -117,6 +118,13 @@ public class SchemaHandler extends RequestHandlerBase implements SolrCoreAware, 
         case "/schema":
           rsp.add(IndexSchema.SCHEMA, req.getSchema().getNamedPropertyValues());
           break;
+        case "/schema/train/yield":
+          TrainedFieldType.getTrainedSchema(req, rsp);
+          break;
+        case "/schema/train/count":
+          TrainedFieldType.getUniqueIdCounts(req, rsp);
+          break;
+
         case "/schema/version":
           rsp.add(IndexSchema.VERSION, req.getSchema().getVersion());
           break;
@@ -125,6 +133,9 @@ public class SchemaHandler extends RequestHandlerBase implements SolrCoreAware, 
           break;
         case "/schema/similarity":
           rsp.add(IndexSchema.SIMILARITY, req.getSchema().getSimilarityFactory().getNamedPropertyValues());
+          break;
+        case "/schema/train/start":
+          rsp.add(IndexSchema.TRAIN_ID, TrainedFieldType.generateTrainingId(req.getCore()));
           break;
         case "/schema/name": {
           final String schemaName = req.getSchema().getSchemaName();
