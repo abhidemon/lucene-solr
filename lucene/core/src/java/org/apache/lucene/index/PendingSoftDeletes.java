@@ -26,9 +26,9 @@ import org.apache.lucene.search.DocValuesFieldExistsQuery;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.util.Bits;
+import org.apache.lucene.util.FixedBitSet;
 import org.apache.lucene.util.IOSupplier;
 import org.apache.lucene.util.IOUtils;
-import org.apache.lucene.util.MutableBits;
 
 final class PendingSoftDeletes extends PendingDeletes {
 
@@ -50,7 +50,7 @@ final class PendingSoftDeletes extends PendingDeletes {
 
   @Override
   boolean delete(int docID) throws IOException {
-    MutableBits mutableBits = getMutableBits(); // we need to fetch this first it might be a shared instance with hardDeletes
+    FixedBitSet mutableBits = getMutableBits(); // we need to fetch this first it might be a shared instance with hardDeletes
     if (hardDeletes.delete(docID)) {
       if (mutableBits.get(docID)) { // delete it here too!
         mutableBits.clear(docID);
@@ -58,6 +58,7 @@ final class PendingSoftDeletes extends PendingDeletes {
       } else {
         // if it was deleted subtract the delCount
         pendingDeleteCount--;
+        assert pendingDeleteCount >= 0 : " illegal pending delete count: " + pendingDeleteCount;
       }
       return true;
     }
@@ -65,7 +66,7 @@ final class PendingSoftDeletes extends PendingDeletes {
   }
 
   @Override
-  int numPendingDeletes() {
+  protected int numPendingDeletes() {
     return super.numPendingDeletes() + hardDeletes.numPendingDeletes();
   }
 
@@ -78,11 +79,11 @@ final class PendingSoftDeletes extends PendingDeletes {
       if (iterator != null) { // nothing is deleted we don't have a soft deletes field in this segment
         assert info.info.maxDoc() > 0 : "maxDoc is 0";
         pendingDeleteCount += applySoftDeletes(iterator, getMutableBits());
+        assert pendingDeleteCount >= 0 : " illegal pending delete count: " + pendingDeleteCount;
       }
       dvGeneration = info.getDocValuesGen();
     }
-    assert numPendingDeletes() + info.getDelCount() <= info.info.maxDoc() :
-        numPendingDeletes() + " + " + info.getDelCount() + " > " + info.info.maxDoc();
+    assert getDelCount() <= info.info.maxDoc() : getDelCount() + " > " + info.info.maxDoc();
   }
 
   @Override
@@ -105,16 +106,25 @@ final class PendingSoftDeletes extends PendingDeletes {
    * @param bits the bit set to apply the deletes to
    * @return the number of bits changed by this function
    */
-  static int applySoftDeletes(DocIdSetIterator iterator, MutableBits bits) throws IOException {
+  static int applySoftDeletes(DocIdSetIterator iterator, FixedBitSet bits) throws IOException {
     assert iterator != null;
     int newDeletes = 0;
     int docID;
+    DocValuesFieldUpdates.Iterator hasValue = iterator instanceof DocValuesFieldUpdates.Iterator
+        ? (DocValuesFieldUpdates.Iterator) iterator : null;
     while ((docID = iterator.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
-      if (bits.get(docID)) { // doc is live - clear it
-        bits.clear(docID);
-        newDeletes++;
-        // now that we know we deleted it and we fully control the hard deletes we can do correct accounting
-        // below.
+      if (hasValue == null || hasValue.hasValue()) {
+        if (bits.get(docID)) { // doc is live - clear it
+          bits.clear(docID);
+          newDeletes++;
+          // now that we know we deleted it and we fully control the hard deletes we can do correct accounting
+          // below.
+        }
+      } else {
+        if (bits.get(docID) == false) {
+          bits.set(docID);
+          newDeletes--;
+        }
       }
     }
     return newDeletes;
@@ -124,6 +134,7 @@ final class PendingSoftDeletes extends PendingDeletes {
   void onDocValuesUpdate(FieldInfo info, DocValuesFieldUpdates.Iterator iterator) throws IOException {
     if (this.field.equals(info.name)) {
       pendingDeleteCount += applySoftDeletes(iterator, getMutableBits());
+      assert pendingDeleteCount >= 0 : " illegal pending delete count: " + pendingDeleteCount;
       assert dvGeneration < info.getDocValuesGen() : "we have seen this generation update already: " + dvGeneration + " vs. " + info.getDocValuesGen();
       assert dvGeneration != -2 : "docValues generation is still uninitialized";
       dvGeneration = info.getDocValuesGen();
@@ -195,13 +206,8 @@ final class PendingSoftDeletes extends PendingDeletes {
     }
   }
 
-  Bits getHardLiveDocs() {
-    return hardDeletes.getHardLiveDocs();
-  }
-
   @Override
-  void liveDocsShared() {
-    super.liveDocsShared();
-    hardDeletes.liveDocsShared();
+  Bits getHardLiveDocs() {
+    return hardDeletes.getLiveDocs();
   }
 }
