@@ -54,8 +54,9 @@ public class SchemaMutatingUpdateRequestProcessorFactory  {
   private static final String MAX_CHARS_PARAM = "maxChars";
   private static final String IS_DEFAULT_PARAM = "default";
 
-  private static final String REGEX_MAPPING_PARAM = "regexMapping";
-  private static final String REGEX_PATTERN_PARAM = "regexPattern";
+  private static final String REGEX_MAPPING_PARAM  = "regexMapping";
+  private static final String EXPECTED_FIELD_NAMES = "regexMapping";
+  private static final String REGEX_PATTERN_PARAM  = "regexPattern";
 
 
 
@@ -395,6 +396,18 @@ public class SchemaMutatingUpdateRequestProcessorFactory  {
     return mostAccomodatingFieldTypes;
   }
 
+  public static List<String> parseExpectedCategoriesFromExternalClassifier(NamedList args){
+    List<String> expectedCats = new ArrayList<>();
+
+    List<Object> expectedCatsStr = args.getAll(EXPECTED_FIELD_NAMES);
+
+    for (Object obj : expectedCatsStr){
+      expectedCats.add(String.valueOf(obj));
+    }
+
+    return expectedCats;
+
+  }
   public static List<RegexMapping> parseRegexMappings(NamedList args){
     List<RegexMapping> regexMappings = new ArrayList<>();
 

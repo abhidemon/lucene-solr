@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
@@ -62,19 +63,35 @@ public class TrainedFieldType {
   private long createdTimeStamp = System.currentTimeMillis();
 
 
-  public void addAllowedFieldType(String fieldName, String fieldTypeName, boolean multiValued, Map<SupportedTypes, String> mostAccomodatingFieldTypes){
+  public void addAllowedFieldType(String fieldName, String fieldTypeName, boolean multiValued, Map<SupportedTypes, String> mostAccomodatingFieldTypes, boolean addToStats){
     if (!fieldNameToSupportedFieldTypesMapping.containsKey(fieldName)){
       fieldNameToSupportedFieldTypesMapping.putIfAbsent(fieldName, new SupportedTypes(mostAccomodatingFieldTypes));
     }
     fieldNameToSupportedFieldTypesMapping.get(fieldName).addFieldForSupport(fieldTypeName, multiValued);
+
+    if (addToStats){
+      addStatsAboutCurrentType(fieldName, fieldTypeName);
+    }
+
+  }
+
+  public static String addStatsAboutCurrentType(SolrQueryRequest req, String fieldName, String fieldTypeName){
+    String trainingId = verifyAndGetTrainingId(req);
+    trainedCoreToMostRelevantFieldTypesMapping.get( trainingId )
+        .addStatsAboutCurrentType(fieldName, fieldTypeName);
+    return trainingId;
+  }
+
+  public void addStatsAboutCurrentType(String fieldName, String fieldTypeName){
     synchronized (this){
-      if (fieldNameWiseStatsMapping.containsKey(fieldName)){
-        Map<String, AtomicLong> stats = fieldNameWiseStatsMapping.get(fieldName);
-        if (stats.containsKey(fieldTypeName)){
-          stats.get(fieldTypeName).incrementAndGet();
-        }else{
-          stats.put(fieldTypeName, new AtomicLong(1L));
-        }
+      if (!fieldNameWiseStatsMapping.containsKey(fieldName)){
+        fieldNameWiseStatsMapping.putIfAbsent(fieldName, new HashMap<String, AtomicLong>());
+      }
+      Map<String, AtomicLong> stats = fieldNameWiseStatsMapping.get(fieldName);
+      if (stats.containsKey(fieldTypeName)){
+        stats.get(fieldTypeName).incrementAndGet();
+      }else{
+        stats.put(fieldTypeName, new AtomicLong(1L));
       }
     }
   }
@@ -117,8 +134,12 @@ public class TrainedFieldType {
   public static String trainSchema(SolrQueryRequest req, String fieldName, String fieldTypeName, boolean multiValued, LearnSchemaUpdateRequestProcessorFactory lsURSP){
     String trainingId = verifyAndGetTrainingId(req);
     trainedCoreToMostRelevantFieldTypesMapping.get( trainingId )
-        .addAllowedFieldType( fieldName, fieldTypeName , multiValued, lsURSP.getMostAccomodatingFieldTypes());
+        .addAllowedFieldType( fieldName, fieldTypeName , multiValued, lsURSP.getMostAccomodatingFieldTypes(), false);
     return trainingId;
+  }
+
+  public Map<String, Map<String, AtomicLong>> getFieldNameWiseStatsMapping(){
+    return fieldNameWiseStatsMapping;
   }
 
   private Map<String, Object> getFieldWiseStats(){
@@ -147,6 +168,22 @@ public class TrainedFieldType {
     }
     return statsData;
     }
+
+  private Map<String, Object> getFieldNameAndSupportedType(){
+
+    Map<String, Object> fieldSchema = new LinkedHashMap<>();
+
+    for(Map.Entry<String, SupportedTypes> entry : fieldNameToSupportedFieldTypesMapping.entrySet()){
+
+      String fieldName = entry.getKey();
+
+      SupportedTypes supportedTypes = entry.getValue();
+      String fieldType = supportedTypes.getMostRelevantFieldTypes();
+
+      fieldSchema.put(fieldName, fieldType);
+    }
+    return fieldSchema;
+  }
 
   private Map<String, Object> convertTrainingMetaDataToSchemaFormat(){
     //{add-field-type:[{"name":"myNewTxtField3","class":"solr.TextField","positionIncrementGap":"100"},{"name":"myNewTxtField2","class":"solr.TextField","positionIncrementGap":"100"}]}
@@ -179,17 +216,79 @@ public class TrainedFieldType {
     rsp.add("count", totCount);
     rsp.add("errors",errors);
   }
+
   public static void getTrainedSchema(SolrQueryRequest req, SolrQueryResponse rsp){
     String trainingId = verifyAndGetTrainingId(req);
     TrainedFieldType mostRelavantFieldTypes = trainedCoreToMostRelevantFieldTypesMapping.get(trainingId);
-    rsp.add(IndexSchema.SCHEMA, mostRelavantFieldTypes.convertTrainingMetaDataToSchemaFormat());
-    try{
-      if ( Boolean.valueOf(req.getParams().get("enableStats"))){
-        rsp.add("stats", mostRelavantFieldTypes.getFieldWiseStats());
-      }
-    }catch (Exception e){
-      e.printStackTrace();
+    if ( Boolean.valueOf(req.getParams().get("sendStatsBasedType"))){
+      rsp.add("stats", mostRelavantFieldTypes.getFieldWiseStats());
+
+    }else if (Boolean.valueOf(req.getParams().get("enableStats"))){
+      rsp.add("stats", mostRelavantFieldTypes.getFieldWiseStats());
+
+    }else{
+      rsp.add(IndexSchema.SCHEMA, mostRelavantFieldTypes.convertTrainingMetaDataToSchemaFormat());
     }
+
+  }
+
+  public static void getStatsBasedSchema(SolrQueryRequest req, SolrQueryResponse rsp){
+
+    String trainingId = verifyAndGetTrainingId(req);
+    TrainedFieldType mostRelavantFieldTypes = trainedCoreToMostRelevantFieldTypesMapping.get(trainingId);
+    if ( Boolean.valueOf(req.getParams().get("sendStatsBasedSchema"))){
+      //Map<String, Map<String, AtomicLong>>
+      //Map<String, Map<String, AtomicLong>> stats = ()mostRelavantFieldTypes.getFieldWiseStats();
+
+      //mostRelavantFieldTypes.convertTrainingMetaDataToSchemaFormat();
+      Map<String, Object> finalResp = mostRelavantFieldTypes.convertTrainingMetaDataToSchemaFormat();
+      Map<String, Map<String, AtomicLong>> statsMapping = mostRelavantFieldTypes.getFieldNameWiseStatsMapping();
+      //Map<String, AtomicLong> stats = statsMapping.get(trainingId);
+
+      Map<String, Object> statsData = new LinkedHashMap<>();
+      Map<String, Object> finalSchema = mostRelavantFieldTypes.getFieldNameAndSupportedType();
+
+      for(Map.Entry<String, Map<String, AtomicLong>> fieldNameWiseStatsEntry : statsMapping.entrySet()){
+
+        String fieldName = fieldNameWiseStatsEntry.getKey();
+        Map<String, AtomicLong> fieldTypewiseStats = fieldNameWiseStatsEntry.getValue();
+
+        long total = 0;
+        long maxCount = 0;
+        String typeWithMaxCount = null;
+        for ( Map.Entry<String, AtomicLong> fieldTypeAndCounter : fieldTypewiseStats.entrySet()){
+
+          String type = fieldTypeAndCounter.getKey();
+          AtomicLong counter = fieldTypeAndCounter.getValue();
+          long curCnt = counter.get();
+          total += curCnt;
+          if (curCnt>maxCount){
+            maxCount=curCnt;
+            typeWithMaxCount=type;
+          }
+        }
+
+        if ( maxCount*1.0 >= 0.70*total ){
+
+          finalSchema.put(fieldName, typeWithMaxCount);
+
+        }
+
+      }
+
+
+      //for (stats)
+
+      rsp.add(IndexSchema.SCHEMA, finalSchema);
+
+    } else {
+      rsp.add(IndexSchema.SCHEMA, mostRelavantFieldTypes.convertTrainingMetaDataToSchemaFormat());
+    }
+
+    if (Boolean.valueOf(req.getParams().get("enableStats"))){
+      rsp.add("stats", mostRelavantFieldTypes.getFieldNameWiseStatsMapping());
+    }
+
 
   }
 

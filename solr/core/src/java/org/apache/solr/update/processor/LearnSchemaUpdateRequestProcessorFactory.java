@@ -33,6 +33,7 @@ import org.apache.solr.core.SolrCore;
 import org.apache.solr.core.SolrResourceLoader;
 import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.response.SolrQueryResponse;
+import org.apache.solr.schema.IndexSchema;
 import org.apache.solr.schema.TrainedFieldType;
 import org.apache.solr.update.AddUpdateCommand;
 import org.apache.solr.util.plugin.SolrCoreAware;
@@ -48,6 +49,7 @@ import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProces
 import static org.apache.solr.update.processor.AddSchemaFieldsUpdateProcessorFactory.validateSelectorParams;
 import static org.apache.solr.update.processor.FieldMutatingUpdateProcessor.SELECT_ALL_FIELDS;
 import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.getUnknownFields;
+import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.parseExpectedCategoriesFromExternalClassifier;
 import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.parseRegexMappings;
 import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.parseTypeMappings;
 import static org.apache.solr.update.processor.SchemaMutatingUpdateRequestProcessorFactory.SupportedTypes;
@@ -70,6 +72,7 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
   private String defaultFieldType;
   private SchemaMutatingUpdateRequestProcessorFactory.TypeTree typeTree;
   private Map<SupportedTypes, String> mostAccomodatingFieldTypes;
+  private List<String> epectedExternalCategories = Collections.emptyList();
 
   @Override
   public void inform(SolrCore core) {
@@ -96,7 +99,9 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
     }
     defaultFieldType = getDefaultFieldType(args);
     typeMappings = parseTypeMappings(args);
+    epectedExternalCategories = parseExpectedCategoriesFromExternalClassifier(args);
     regexMappings = parseRegexMappings(args);
+
     typeTree = SchemaMutatingUpdateRequestProcessorFactory.parseTypeTree(args);
     mostAccomodatingFieldTypes = SchemaMutatingUpdateRequestProcessorFactory.getMostAccomodatingFieldTypes(typeTree);
     super.init(args);
@@ -147,6 +152,8 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
         String fieldTypeName = defaultFieldType;
         List<SolrInputField> inputFields = entry.getValue();
 
+        boolean lookForSemanticTypes = Boolean.valueOf(cmd.getReq().getParams().get("allowSemanticInference"));
+
         for (SolrInputField inputField : inputFields){
           if (inputField.getValue() instanceof  List){
             // Can be a candidate of MultiValued FieldType
@@ -161,6 +168,14 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
                 continue;
               }
               fieldTypeName = fieldTypeName==null?defaultFieldType:fieldTypeName;
+              if (lookForSemanticTypes && defaultFieldType.equals(fieldTypeName) && !fieldName.equals("id")){
+                try{
+                  String modelBasedType = APIBasedInference.predictCategory(inputField.getValue()).result;
+                  TrainedFieldType.addStatsAboutCurrentType(cmd.getReq(), fieldName, modelBasedType);
+                }catch (Exception e){
+                  log.error("Some problem in APIBasedInference for "+inputField.getValue()+". Error : "+e.getMessage(), e);
+                }
+              }
               trainingId = TrainedFieldType.trainSchema(cmd.getReq(), fieldName, fieldTypeName, true, learnSchemaUpdateRequestProcessorFactory);
             }
           }else{
@@ -172,6 +187,18 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
               continue;
             }
             fieldTypeName = fieldTypeName==null?defaultFieldType:fieldTypeName;
+
+            if (lookForSemanticTypes && fieldTypeName.equals(defaultFieldType) && !fieldName.equals("id")){
+              //Trying the model only if this is a text.
+              try{
+
+                String modelBasedType = APIBasedInference.predictCategory(inputField.getValue()).result;
+                TrainedFieldType.addStatsAboutCurrentType(cmd.getReq(), fieldName, modelBasedType);
+
+              }catch (Exception e){
+                log.error("Some problem in APIBasedInference for "+inputField.getValue()+". Error : "+e.getMessage(), e);
+              }
+            }
             trainingId = TrainedFieldType.trainSchema(cmd.getReq(), fieldName, fieldTypeName, false, learnSchemaUpdateRequestProcessorFactory);
           }
         }
@@ -186,7 +213,6 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
           // has not been initialised properly.
           TrainedFieldType.trainingIdToUniqueIdsEncountered.get(trainingId).add(valueAtUniqueID.getValue());
         }
-
       }
       super.processAdd(cmd);
     }
