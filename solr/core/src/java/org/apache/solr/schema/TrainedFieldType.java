@@ -196,11 +196,16 @@ public class TrainedFieldType {
       fieldSchema.put("name",fieldName);
       SupportedTypes supportedTypes = entry.getValue();
       String fieldType = supportedTypes.getMostRelevantFieldTypes();
+
+      boolean multiValued = supportedTypes.isMultiValued();
+      if (multiValued){
+        fieldType+="s";
+      }
       fieldSchema.put("type", fieldType);
-      fieldSchema.put("multivalued", supportedTypes.isMultiValued());
+      //fieldSchema.put("multivalued", multiValued);
       fieldSchemas.add(fieldSchema);
     }
-    addSchemaData.put("add-field-type", fieldSchemas);
+    addSchemaData.put("add-field", fieldSchemas);
     return addSchemaData;
   }
 
