@@ -143,7 +143,13 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
       final SolrCore core = cmd.getReq().getCore();
 
       Map<String,List<SolrInputField>> unknownFields = new HashMap<>();
-      FieldNameSelector selector = SELECT_ALL_FIELDS;
+      FieldNameSelector selector;
+      if (Boolean.valueOf(cmd.getReq().getParams().get("learnForAllFields"))){
+        selector = SELECT_ALL_FIELDS;
+      }else{
+        selector = buildSelector(cmd.getReq().getSchema());
+      }
+
       getUnknownFields(selector, doc, unknownFields);
       String trainingId = null;
 
@@ -216,6 +222,17 @@ public class LearnSchemaUpdateRequestProcessorFactory extends UpdateRequestProce
       }
       super.processAdd(cmd);
     }
+  }
+
+  private FieldNameSelector buildSelector(IndexSchema schema) {
+    FieldNameSelector selector = FieldMutatingUpdateProcessor.createFieldNameSelector
+        (solrResourceLoader, schema, inclusions, fieldName -> null == schema.getFieldTypeNoEx(fieldName));
+
+    for (FieldMutatingUpdateProcessorFactory.SelectorParams exc : exclusions) {
+      selector = FieldMutatingUpdateProcessor.wrap(selector, FieldMutatingUpdateProcessor.createFieldNameSelector
+          (solrResourceLoader, schema, exc, FieldMutatingUpdateProcessor.SELECT_NO_FIELDS));
+    }
+    return selector;
   }
 
   public Map<SupportedTypes, String> getMostAccomodatingFieldTypes() {
